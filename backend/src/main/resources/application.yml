@@ -45,7 +45,7 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 jwt:
-  secret: ${JWT_SECRET:ITMS-BD-DevSecret-Change-Me}
+  secret: ${JWT_SECRET:ITMS-BD-DevSecret-Change-Me-At-Least-32-Bytes}
   expiration: 86400000
 
 springdoc:

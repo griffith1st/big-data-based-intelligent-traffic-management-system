@@ -5,7 +5,7 @@ WORKDIR /app
 # 只复制依赖配置文件
 COPY package.json package-lock.json ./
 COPY tsconfig.json ./
-COPY .env ./
+COPY .env.development .env
 
 # 配置镜像 + 清理缓存 + 强制安装兼容依赖
 RUN npm config set registry https://registry.npmmirror.com/
