@@ -1,0 +1,164 @@
+# ===================================================
+# ITMS-BD - Docker Compose
+# Technology Stack: Spring Boot + PostgreSQL + Redis + Kafka
+#                  + PySpark + Python AI Services
+# ===================================================
+
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: itms-postgres
+    environment:
+      POSTGRES_DB: itms_bd
+      POSTGRES_USER: itms_admin
+      POSTGRES_PASSWORD: itms123456
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - itms-network
+    command: >
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c work_mem=8MB
+      -c maintenance_work_mem=64MB
+      -c random_page_cost=1.1
+      -c max_connections=50
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U itms_admin -d itms_bd"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: itms-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - itms-network
+    command: redis-server --appendonly yes
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: itms-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - itms-network
+
+  # Kafka Message Queue
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: itms-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - itms-network
+
+  # Backend Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: itms-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/itms_bd
+      SPRING_DATASOURCE_USERNAME: itms_admin
+      SPRING_DATASOURCE_PASSWORD: itms123456
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      TZ: Asia/Shanghai
+      JAVA_OPTS: >-
+        -Xms256m -Xmx768m
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+DisableExplicitGC
+        -Djava.security.egd=file:/dev/./urandom
+    networks:
+      - itms-network
+
+  # Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: itms-frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+    environment:
+      REACT_APP_API_URL: http://localhost:8080
+    networks:
+      - itms-network
+
+  # # AI LSTM Prediction Service
+  # ai-lstm:
+  #   build:
+  #     context: ./ai
+  #     dockerfile: Dockerfile.lstm
+  #   container_name: itms-ai-lstm
+  #   ports:
+  #     - "5000:5000"
+  #   networks:
+  #     - itms-network
+
+  # # AI DQN Signal Control Service
+  # ai-dqn:
+  #   build:
+  #     context: ./ai
+  #     dockerfile: Dockerfile.dqn
+  #   container_name: itms-ai-dqn
+  #   ports:
+  #     - "5001:5001"
+  #   networks:
+  #     - itms-network
+
+  # # AI A* Path Planning Service
+  # ai-astar:
+  #   build:
+  #     context: ./ai
+  #     dockerfile: Dockerfile.astar
+  #   container_name: itms-ai-astar
+  #   ports:
+  #     - "5002:5002"
+  #   networks:
+  #     - itms-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  itms-network:
+    driver: bridge

@@ -1,0 +1,291 @@
+package com.itms.service.impl;
+
+import com.itms.common.TrafficNetwork;
+import com.itms.entity.TrafficData;
+import com.itms.entity.TrafficSignal;
+import com.itms.repository.TrafficDataRepository;
+import com.itms.repository.TrafficSignalRepository;
+import com.itms.service.SystemLogService;
+import com.itms.service.TrafficSignalService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class TrafficSignalServiceImpl implements TrafficSignalService {
+
+    private final TrafficSignalRepository signalRepository;
+    private final TrafficDataRepository trafficDataRepository;
+    private final SystemLogService systemLogService;
+
+    @Override
+    public List<TrafficSignal> getSignals(String intersectionId) {
+        List<TrafficSignal> signals = signalRepository.findByIntersectionId(intersectionId);
+        return signals.isEmpty() ? createDefaultSignals(intersectionId) : sortSignals(signals);
+    }
+
+    @Override
+    public Map<String, Object> getCurrent(String intersectionId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("intersectionId", intersectionId);
+        result.put("intersectionName", intersectionName(intersectionId));
+        result.put("signals", getSignals(intersectionId));
+        result.put("directionStates", directionStates(intersectionId));
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> optimizeSignals(String intersectionId, String strategy) {
+        String normalized = normalizeStrategy(strategy);
+        List<DirectionState> states = directionStates(intersectionId);
+        Map<String, DirectionState> byDirection = states.stream()
+                .collect(Collectors.toMap(DirectionState::direction, state -> state, (a, b) -> a, LinkedHashMap::new));
+
+        double nsWeight = phaseWeight(byDirection.get("NORTH"), normalized)
+                + phaseWeight(byDirection.get("SOUTH"), normalized);
+        double ewWeight = phaseWeight(byDirection.get("EAST"), normalized)
+                + phaseWeight(byDirection.get("WEST"), normalized);
+        double totalWeight = Math.max(1.0, nsWeight + ewWeight);
+
+        int yellow = 5;
+        int cycleLength = clamp((int) Math.round(90 + totalWeight / 95.0), 80, 160);
+        int allocatableGreen = cycleLength - yellow * 2;
+        int nsGreen = clamp((int) Math.round(allocatableGreen * nsWeight / totalWeight), 30, 90);
+        int ewGreen = clamp(allocatableGreen - nsGreen, 30, 90);
+
+        if ("EMERGENCY_FIRST".equals(normalized)) {
+            DirectionState emergency = states.stream().filter(DirectionState::emergencyVehicleDetected)
+                    .max(Comparator.comparingDouble(DirectionState::weight)).orElse(null);
+            if (emergency != null) {
+                if (emergency.direction().equals("NORTH") || emergency.direction().equals("SOUTH")) {
+                    nsGreen = Math.min(90, nsGreen + 15);
+                    ewGreen = Math.max(30, allocatableGreen - nsGreen);
+                } else {
+                    ewGreen = Math.min(90, ewGreen + 15);
+                    nsGreen = Math.max(30, allocatableGreen - ewGreen);
+                }
+            }
+        }
+
+        double beforeWait = estimateAverageWait(getSignals(intersectionId), states);
+        List<TrafficSignal> optimized = upsertSignals(intersectionId, normalized, nsGreen, ewGreen, yellow, cycleLength);
+        double afterWait = estimateAverageWait(optimized, states);
+        double improvement = beforeWait <= 0 ? 0 : Math.max(0, Math.min(45, (beforeWait - afterWait) / beforeWait * 100.0));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("intersectionId", intersectionId);
+        result.put("intersectionName", intersectionName(intersectionId));
+        result.put("strategy", normalized);
+        result.put("beforeAverageWait", round(beforeWait, 1));
+        result.put("afterAverageWait", round(afterWait, 1));
+        result.put("improvementRate", round(improvement, 1));
+        result.put("cycleLength", cycleLength);
+        result.put("signals", optimized);
+        result.put("directionStates", states);
+        result.put("phases", List.of(
+                phase("NS_PHASE", List.of("NORTH", "SOUTH"), nsGreen, yellow, cycleLength),
+                phase("EW_PHASE", List.of("EAST", "WEST"), ewGreen, yellow, cycleLength)
+        ));
+        String dominant = nsWeight >= ewWeight ? "NORTH/SOUTH" : "EAST/WEST";
+        int dominantGreen = nsWeight >= ewWeight ? nsGreen : ewGreen;
+        int otherGreen = nsWeight >= ewWeight ? ewGreen : nsGreen;
+        result.put("explanation", String.format(
+                "检测到 %s 方向综合权重较高，系统将该相位绿灯调整为 %d 秒，另一相位调整为 %d 秒，预计平均等待时间降低 %.1f%%。",
+                dominant, dominantGreen, otherGreen, improvement));
+
+        systemLogService.log("OPERATION", "信号灯优化",
+                "优化 " + intersectionId + " 策略=" + normalized, "SUCCESS");
+        return result;
+    }
+
+    @Override
+    public void applySignalPlan(String intersectionId) {
+        for (TrafficSignal signal : getSignals(intersectionId)) {
+            signal.setOptimizationStatus("APPLIED");
+            signal.setAppliedAt(LocalDateTime.now());
+            signalRepository.save(signal);
+        }
+        systemLogService.log("OPERATION", "信号灯优化", "应用方案 " + intersectionId, "SUCCESS");
+    }
+
+    @Override
+    public List<Map<String, Object>> getSignalOverview() {
+        return TrafficNetwork.INTERSECTIONS.values().stream().map(node -> {
+            List<TrafficSignal> signals = getSignals(node.intersectionId());
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("intersectionId", node.intersectionId());
+            item.put("intersectionName", node.intersectionName());
+            item.put("status", signals.get(0).getOptimizationStatus());
+            item.put("strategy", signals.get(0).getStrategy());
+            item.put("signalCount", signals.size());
+            item.put("avgCycle", signals.stream().mapToInt(TrafficSignal::getCycleDuration).average().orElse(0));
+            return item;
+        }).toList();
+    }
+
+    @Override
+    public List<Map<String, Object>> getSignalIntersections() {
+        return TrafficNetwork.INTERSECTIONS.values().stream().map(node -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("intersectionId", node.intersectionId());
+            item.put("intersectionName", node.intersectionName());
+            item.put("longitude", node.longitude());
+            item.put("latitude", node.latitude());
+            return item;
+        }).toList();
+    }
+
+    private List<DirectionState> directionStates(String intersectionId) {
+        Map<String, TrafficData> latest = trafficDataRepository.findLatestTrafficData().stream()
+                .filter(data -> intersectionId.equals(data.getIntersectionId()))
+                .collect(Collectors.toMap(TrafficData::getDirection, data -> data, (a, b) -> a, LinkedHashMap::new));
+        List<DirectionState> states = new ArrayList<>();
+        TrafficNetwork.Intersection intersection = TrafficNetwork.intersection(intersectionId);
+        int base = intersection == null ? 600 : intersection.baseFlow();
+        for (String direction : TrafficNetwork.DIRECTIONS) {
+            TrafficData data = latest.get(direction);
+            int vehicleCount = data == null ? Math.max(80, base / 2) : data.getVehicleCount();
+            double speed = data == null || data.getAvgSpeed() == null ? 42.0 : data.getAvgSpeed();
+            int congestion = data == null || data.getCongestionLevel() == null ? 0 : data.getCongestionLevel();
+            double queueLength = Math.max(0, vehicleCount / 10.0 - speed / 5.0);
+            double waitingTime = queueLength * 2.6 + congestion * 14.0;
+            boolean emergency = false;
+            double weight = vehicleCount * 0.5 + queueLength * 10.0 + waitingTime * 0.3;
+            weight *= switch (congestion) {
+                case 1 -> 1.2;
+                case 2 -> 1.5;
+                case 3 -> 2.0;
+                default -> 1.0;
+            };
+            states.add(new DirectionState(direction, vehicleCount, round(speed, 1), round(queueLength, 1),
+                    TrafficDataServiceImpl.congestionText(congestion), congestion, round(waitingTime, 1),
+                    emergency, round(weight, 1)));
+        }
+        return states;
+    }
+
+    private double phaseWeight(DirectionState state, String strategy) {
+        if (state == null) {
+            return 1;
+        }
+        double weight = state.weight();
+        if ("CONGESTION_FIRST".equals(strategy) || "EMERGENCY_FIRST".equals(strategy)) {
+            weight *= 1.0 + state.congestionLevelValue() * 0.28;
+        }
+        return weight;
+    }
+
+    private List<TrafficSignal> upsertSignals(String intersectionId, String strategy,
+                                              int nsGreen, int ewGreen, int yellow, int cycleLength) {
+        Map<String, TrafficSignal> existing = getSignals(intersectionId).stream()
+                .collect(Collectors.toMap(TrafficSignal::getDirection, signal -> signal));
+        List<TrafficSignal> result = new ArrayList<>();
+        for (String direction : TrafficNetwork.DIRECTIONS) {
+            boolean ns = direction.equals("NORTH") || direction.equals("SOUTH");
+            int green = ns ? nsGreen : ewGreen;
+            int red = Math.max(15, cycleLength - green - yellow);
+            TrafficSignal signal = existing.getOrDefault(direction, TrafficSignal.builder()
+                    .intersectionId(intersectionId)
+                    .direction(direction)
+                    .build());
+            signal.setGreenDuration(green);
+            signal.setRedDuration(red);
+            signal.setYellowDuration(yellow);
+            signal.setCycleDuration(cycleLength);
+            signal.setPhaseId(ns ? 1 : 2);
+            signal.setOptimizationStatus("OPTIMIZED");
+            signal.setStrategy(strategy);
+            signal.setAppliedAt(LocalDateTime.now());
+            result.add(signalRepository.save(signal));
+        }
+        return sortSignals(result);
+    }
+
+    private List<TrafficSignal> createDefaultSignals(String intersectionId) {
+        List<TrafficSignal> signals = new ArrayList<>();
+        for (String direction : TrafficNetwork.DIRECTIONS) {
+            boolean ns = direction.equals("NORTH") || direction.equals("SOUTH");
+            TrafficSignal signal = TrafficSignal.builder()
+                    .intersectionId(intersectionId)
+                    .direction(direction)
+                    .greenDuration(40)
+                    .redDuration(45)
+                    .yellowDuration(5)
+                    .cycleDuration(90)
+                    .phaseId(ns ? 1 : 2)
+                    .optimizationStatus("PENDING")
+                    .strategy("FIXED")
+                    .build();
+            signals.add(signalRepository.save(signal));
+        }
+        return sortSignals(signals);
+    }
+
+    private List<TrafficSignal> sortSignals(List<TrafficSignal> signals) {
+        Map<String, Integer> order = Map.of("NORTH", 0, "SOUTH", 1, "EAST", 2, "WEST", 3);
+        return signals.stream()
+                .sorted(Comparator.comparingInt(signal -> order.getOrDefault(signal.getDirection(), 9)))
+                .toList();
+    }
+
+    private double estimateAverageWait(List<TrafficSignal> signals, List<DirectionState> states) {
+        Map<String, TrafficSignal> byDirection = signals.stream()
+                .collect(Collectors.toMap(TrafficSignal::getDirection, signal -> signal, (a, b) -> a));
+        double weightedWait = 0;
+        double totalVehicles = 0;
+        for (DirectionState state : states) {
+            TrafficSignal signal = byDirection.get(state.direction());
+            double cycle = signal == null || signal.getCycleDuration() == null ? 90 : signal.getCycleDuration();
+            double green = signal == null || signal.getGreenDuration() == null ? 40 : signal.getGreenDuration();
+            double wait = state.waitingTime() + Math.max(0, cycle - green) * 0.35;
+            weightedWait += wait * state.vehicleCount();
+            totalVehicles += state.vehicleCount();
+        }
+        return totalVehicles <= 0 ? 0 : weightedWait / totalVehicles;
+    }
+
+    private Map<String, Object> phase(String phaseId, List<String> directions,
+                                      int greenDuration, int yellowDuration, int cycleLength) {
+        Map<String, Object> phase = new LinkedHashMap<>();
+        phase.put("phaseId", phaseId);
+        phase.put("directions", directions);
+        phase.put("greenDuration", greenDuration);
+        phase.put("yellowDuration", yellowDuration);
+        phase.put("redDuration", Math.max(15, cycleLength - greenDuration - yellowDuration));
+        return phase;
+    }
+
+    private String normalizeStrategy(String strategy) {
+        if (strategy == null || strategy.isBlank()) {
+            return "BALANCED";
+        }
+        return strategy.toUpperCase();
+    }
+
+    private String intersectionName(String intersectionId) {
+        TrafficNetwork.Intersection intersection = TrafficNetwork.intersection(intersectionId);
+        return intersection == null ? intersectionId : intersection.intersectionName();
+    }
+
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private double round(double value, int decimals) {
+        double scale = Math.pow(10, decimals);
+        return Math.round(value * scale) / scale;
+    }
+
+    public record DirectionState(String direction, int vehicleCount, double averageSpeed,
+                                 double queueLength, String congestionLevel, int congestionLevelValue,
+                                 double waitingTime, boolean emergencyVehicleDetected, double weight) {
+    }
+}

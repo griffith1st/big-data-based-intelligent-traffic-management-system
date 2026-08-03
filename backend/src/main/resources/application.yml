@@ -1,0 +1,80 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: itms-bd-backend
+  # profiles:
+  #   active: dev
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/itms_bd
+    username: postgres
+    password: ${SPRING_DATASOURCE_PASSWORD:123456}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 5000
+      validation-timeout: 3000
+      idle-timeout: 300000
+      max-lifetime: 600000
+      maximum-pool-size: 30
+      minimum-idle: 5
+      leak-detection-threshold: 10000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      retries: 0
+      properties:
+        max.block.ms: 1000
+    consumer:
+      group-id: itms-traffic-consumer
+      auto-offset-reset: latest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+jwt:
+  secret: ${JWT_SECRET:ITMS-BD-DevSecret-Change-Me}
+  expiration: 86400000
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+
+logging:
+  level:
+    com.itms: DEBUG
+    org.springframework.security: INFO
+    org.springframework.web: INFO
+
+itms:
+  demo:
+    reset-default-users: true
+  traffic:
+    data-interval: 5
+    prediction-window: 30
+    signal-optimize-interval: 60
+    simulator:
+      enabled: true
+      interval-ms: 5000
+  kafka:
+    topic:
+      traffic-data: traffic-data
+  websocket:
+    endpoint: /ws/traffic
+  cors:
+    allowed-origins: http://localhost:3000

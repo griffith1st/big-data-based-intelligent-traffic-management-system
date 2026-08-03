@@ -1,0 +1,7 @@
+target/
+*.jar
+*.log
+.idea/
+.vscode/
+*.iml
+**/node_modules/

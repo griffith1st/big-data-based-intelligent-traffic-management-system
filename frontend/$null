@@ -1,0 +1,7 @@
+npm warn using --force Recommended protections disabled.
+npm warn "node_modules" is being parsed as a normal command line argument.
+npm warn "SilentlyContinue;" is being parsed as a normal command line argument.
+npm warn Unknown cli config "--Recurse". This will stop working in the next major version of npm.
+npm warn Unknown cli config "--Force". This will stop working in the next major version of npm.
+npm warn Unknown cli config "--ErrorAction". This will stop working in the next major version of npm.
+npm warn cache Not Found: ;

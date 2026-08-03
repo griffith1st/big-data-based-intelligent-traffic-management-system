@@ -1,0 +1,19 @@
+# 开发环境配置
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/itms_bd
+    username: itms_admin
+    password: itms123456
+
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: update
+
+logging:
+  level:
+    com.itms: DEBUG
+
+itms:
+  cors:
+    allowed-origins: http://localhost:3000

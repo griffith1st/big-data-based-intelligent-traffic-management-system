@@ -1,0 +1,99 @@
+﻿import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Form, Input, Button, Card, message, Select } from 'antd';
+import { UserOutlined, LockOutlined, CarOutlined } from '@ant-design/icons';
+import { authApi } from '../services/api';
+
+const Login: React.FC = () => {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+
+  const onFinish = async (values: { username: string; password: string }) => {
+    setLoading(true);
+    try {
+      const res = await authApi.login(values.username, values.password);
+      if (res.code === 200) {
+        localStorage.setItem('token', res.data.token);
+        localStorage.setItem('userInfo', JSON.stringify(res.data));
+        message.success(`欢迎回来，${res.data.realName || res.data.username}`);
+        navigate('/dashboard', { replace: true });
+      } else {
+        message.error(res.message || '登录失败');
+      }
+    } catch (error: any) {
+      message.error(error.response?.data?.message || '登录失败，请检查用户名和密码');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      }}
+    >
+      <Card
+        style={{ width: 420, borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}
+        bodyStyle={{ padding: 40 }}
+      >
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <CarOutlined style={{ fontSize: 48, marginBottom: 8, color: '#1677ff' }} />
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: '#1a1a2e' }}>
+            ITMS-BD
+          </h1>
+          <p style={{ margin: '8px 0 0', color: '#666', fontSize: 14 }}>
+            基于大数据的智能交通管理系统
+          </p>
+        </div>
+
+        <Form
+          name="login"
+          onFinish={onFinish}
+          size="large"
+          initialValues={{ username: 'admin', password: '123456' }}
+        >
+          <Form.Item
+            name="username"
+            rules={[{ required: true, message: '请输入用户名' }]}
+          >
+            <Input prefix={<UserOutlined />} placeholder="用户名" />
+          </Form.Item>
+
+          <Form.Item
+            name="password"
+            rules={[{ required: true, message: '请输入密码' }]}
+          >
+            <Input.Password prefix={<LockOutlined />} placeholder="密码" />
+          </Form.Item>
+
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={loading} block>
+              登录
+            </Button>
+          </Form.Item>
+        </Form>
+
+        <div
+          style={{
+            textAlign: 'center',
+            color: '#999',
+            fontSize: 12,
+            borderTop: '1px solid #f0f0f0',
+            paddingTop: 16,
+          }}
+        >
+          <p style={{ margin: '4px 0' }}>测试账号: admin / 123456 (管理员)</p>
+          <p style={{ margin: '4px 0' }}>driver1 / 123456 (驾驶员)</p>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+export default Login;
+
