@@ -6,6 +6,9 @@ import com.itms.repository.TrafficDataRepository;
 import com.itms.service.TrafficAlertService;
 import com.itms.service.TrafficDataService;
 import lombok.RequiredArgsConstructor;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -21,9 +24,20 @@ public class TrafficDataServiceImpl implements TrafficDataService {
 
     private final TrafficDataRepository trafficDataRepository;
     private final TrafficAlertService alertService;
+    private final StringRedisTemplate redis;
+    private final ObjectMapper objectMapper;
+
+    private static final String REALTIME_CACHE_KEY = "itms:traffic:realtime";
+    private static final String SUMMARY_CACHE_KEY = "itms:traffic:intersection-summary";
+    private static final java.time.Duration TRAFFIC_CACHE_TTL = java.time.Duration.ofSeconds(5);
 
     @Override
     public List<Map<String, Object>> getRealTimeData() {
+        List<Map<String, Object>> cached = readCache(REALTIME_CACHE_KEY,
+                new TypeReference<List<Map<String, Object>>>() {});
+        if (cached != null) {
+            return cached;
+        }
         ensureSeedData();
         List<Object[]> rawData = trafficDataRepository.findRealTimeCongestion();
         List<Map<String, Object>> result = new ArrayList<>();
@@ -48,6 +62,7 @@ public class TrafficDataServiceImpl implements TrafficDataService {
             item.put("occupancyRate", row[11]);
             result.add(item);
         }
+        writeCache(REALTIME_CACHE_KEY, result);
         return result;
     }
 
@@ -96,6 +111,11 @@ public class TrafficDataServiceImpl implements TrafficDataService {
 
     @Override
     public List<Map<String, Object>> getIntersectionSummary() {
+        List<Map<String, Object>> cached = readCache(SUMMARY_CACHE_KEY,
+                new TypeReference<List<Map<String, Object>>>() {});
+        if (cached != null) {
+            return cached;
+        }
         List<Map<String, Object>> rows = getRealTimeData();
         Map<String, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
         for (Map<String, Object> row : rows) {
@@ -145,6 +165,7 @@ public class TrafficDataServiceImpl implements TrafficDataService {
             summary.put("timestamp", timestamp);
             result.add(summary);
         }
+        writeCache(SUMMARY_CACHE_KEY, result);
         return result;
     }
 
@@ -153,6 +174,7 @@ public class TrafficDataServiceImpl implements TrafficDataService {
         normalize(data);
         TrafficData saved = trafficDataRepository.save(data);
         alertService.upsertCongestionAlert(saved);
+        evictTrafficCaches();
         return saved;
     }
 
@@ -208,6 +230,32 @@ public class TrafficDataServiceImpl implements TrafficDataService {
         }
         if (data.getCongestionLevel() == null) {
             data.setCongestionLevel(calculateCongestionLevel(data.getVehicleCount(), data.getAvgSpeed()));
+        }
+    }
+
+    private <T> T readCache(String key, TypeReference<T> type) {
+        try {
+            String json = redis.opsForValue().get(key);
+            return json == null ? null : objectMapper.readValue(json, type);
+        } catch (Exception e) {
+            // Cache is an acceleration layer; malformed/stale data falls back to PostgreSQL.
+            return null;
+        }
+    }
+
+    private void writeCache(String key, Object value) {
+        try {
+            redis.opsForValue().set(key, objectMapper.writeValueAsString(value), TRAFFIC_CACHE_TTL);
+        } catch (Exception ignored) {
+            // Database result has already been produced; a Redis outage must not fail the API.
+        }
+    }
+
+    private void evictTrafficCaches() {
+        try {
+            redis.delete(List.of(REALTIME_CACHE_KEY, SUMMARY_CACHE_KEY));
+        } catch (Exception ignored) {
+            // Short TTL bounds staleness when Redis is unavailable.
         }
     }
 

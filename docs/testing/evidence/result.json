@@ -1,0 +1,234 @@
+{
+  "date": "2026-10-04",
+  "timezone": "Asia/Shanghai",
+  "source_base_commit": "ac39f2c plus Redis implementation and regression tests pending commit",
+  "command": "backend/scripts/test-redis.ps1",
+  "java": "17.0.12",
+  "maven": "3.9.16",
+  "docker_engine": "29.7.2",
+  "redis": "Redis server v=7.4.9 sha=00000000:0 malloc=jemalloc-5.3.0 bits=64 build=b4acab9aea09546d",
+  "total": 28,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "scope": "Real Redis component integration (9) plus unit tests (19); JPA/alert mocks; no full HTTP/PostgreSQL/Kafka or performance verification",
+  "suites": [
+    {
+      "name": "com.itms.config.JwtAuthenticationFilterTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "6.017"
+    },
+    {
+      "name": "com.itms.service.impl.RedisAuthFailureTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.341"
+    },
+    {
+      "name": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "tests": "10",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.361"
+    },
+    {
+      "name": "com.itms.integration.RedisApplicationIT",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "12.645"
+    }
+  ],
+  "cases": [
+    {
+      "class": "com.itms.config.JwtAuthenticationFilterTest",
+      "method": "expiredTokenNeverReachesRedis",
+      "seconds": "5.925",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.config.JwtAuthenticationFilterTest",
+      "method": "revokedTokenDoesNotAuthenticate",
+      "seconds": "0.032",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.config.JwtAuthenticationFilterTest",
+      "method": "missingTokenDoesNotAuthenticate",
+      "seconds": "0.0",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.config.JwtAuthenticationFilterTest",
+      "method": "validTokenCreatesAuthenticatedIdentity",
+      "seconds": "0.009",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.config.JwtAuthenticationFilterTest",
+      "method": "characterizesBlacklistOutagePropagatingFromFilter",
+      "seconds": "0.012",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.config.JwtAuthenticationFilterTest",
+      "method": "malformedTokenNeverReachesRedis",
+      "seconds": "0.003",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.RedisAuthFailureTest",
+      "method": "invalidOrExpiredTokenDoesNotCreateRevocationEntry",
+      "seconds": "0.319",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.RedisAuthFailureTest",
+      "method": "characterizesFailureBetweenIncrementAndExpire",
+      "seconds": "0.007",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.RedisAuthFailureTest",
+      "method": "characterizesLogoutSwallowingRedisWriteFailure",
+      "seconds": "0.007",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "method": "databaseFailureIsNotHiddenAsEmptySuccess",
+      "seconds": "0.225",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "method": "cacheHitReturnsPayloadWithoutDatabaseAccess",
+      "seconds": "0.043",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "method": "failedDatabaseSaveDoesNotPublishAlertOrInvalidateCache",
+      "seconds": "0.007",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "method": "cacheMissMapsDatabaseProjectionAndCachesJson",
+      "seconds": "0.023",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "method": "malformedJsonFallsBackToDatabase",
+      "seconds": "0.007",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "method": "redisReadAndWriteOutageStillReturnsDatabaseResult",
+      "seconds": "0.007",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "method": "characterizesAlertFailureSkippingInvalidationAfterSave",
+      "seconds": "0.004",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "method": "summaryUsesWeightedSpeedAndWorstCongestion",
+      "seconds": "0.02",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "method": "cacheDeleteFailureDoesNotDiscardSuccessfulSave",
+      "seconds": "0.003",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "method": "saveNormalizesAndInvalidatesBothCachesAfterDatabaseAndAlert",
+      "seconds": "0.013",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.integration.RedisApplicationIT",
+      "method": "oldReadCanRefillStaleValueAfterWriterInvalidates",
+      "seconds": "2.208",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.integration.RedisApplicationIT",
+      "method": "failureWindowDoesNotRefreshAndSuccessfulClearResetsCounter",
+      "seconds": "0.049",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.integration.RedisApplicationIT",
+      "method": "invalidAndDisabledUsersDoNotReceiveTokens",
+      "seconds": "0.103",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.integration.RedisApplicationIT",
+      "method": "logoutRevokesOnlyThatTokenAndUsesRemainingLifetime",
+      "seconds": "0.214",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.integration.RedisApplicationIT",
+      "method": "fiveWrongPasswordsStillAllowCorrectPasswordAndClearCounter",
+      "seconds": "0.022",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.integration.RedisApplicationIT",
+      "method": "revokedEntryDisappearsWhenTokenLifetimeEnds",
+      "seconds": "3.797",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.integration.RedisApplicationIT",
+      "method": "expiredTrafficCacheReloadsChangedDatabaseValue",
+      "seconds": "5.076",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.integration.RedisApplicationIT",
+      "method": "coldQueryPopulatesCacheAndHotQueryAvoidsDatabase",
+      "seconds": "0.017",
+      "status": "passed"
+    },
+    {
+      "class": "com.itms.integration.RedisApplicationIT",
+      "method": "summaryUsesRealtimeCacheAndSuccessfulWriteInvalidatesBoth",
+      "seconds": "0.029",
+      "status": "passed"
+    }
+  ],
+  "sha256": {
+    "backend/src/test/java/com/itms/config/JwtAuthenticationFilterTest.java": "f56216cef245a594bbe3584f62fb6773bff3552e38252fe86ea839366536f454",
+    "backend/src/test/java/com/itms/integration/RedisApplicationIT.java": "0a41a62b8b8e5480ca65254854703bad8671a15ddc7ce937255c05b128f583dc",
+    "backend/src/test/java/com/itms/service/impl/RedisAuthFailureTest.java": "2494bb5d5134afe07b2366a9128540f8fdce33cc3cb468da5e2dcfb273bae8ce",
+    "backend/src/test/java/com/itms/service/impl/TrafficDataServiceImplTest.java": "e9a1316759bd2cb2b9df84ec36260529a4d368c5919edf141c8add08e0ed1b6f",
+    "backend/src/test/java/com/itms/support/Fixtures.java": "efb2fae5b74e17da59069d85e887171e93aade5b1f71ecb9436bccce68622ba1",
+    "backend/src/main/java/com/itms/service/impl/RedisAuthServiceImpl.java": "ec2315f17133abccb181825cc9ee0d781ae9c16e62a171d2307f60db1960ef26",
+    "backend/src/main/java/com/itms/service/impl/TrafficDataServiceImpl.java": "29d10a64477121d45ab7aa182c707bea5d7b69ea65eba2d6e651e97ed00fdc8c",
+    "backend/src/main/java/com/itms/service/impl/AuthServiceImpl.java": "f2772f968801c0902eade9586f49821a7499fb325a816d3297d62354cf369bfd",
+    "backend/src/main/java/com/itms/config/SecurityConfig.java": "e37c772184af4aa9512f4acc4689d80c26e45f95912c2d93d880ea39835a038b",
+    "backend/src/main/java/com/itms/util/JwtUtil.java": "070784280d1833eb2e132480f306a884a04ade6f3f223f6c10dd1318d7a3bfc5",
+    "backend/pom.xml": "17378a80337458db91346974696fc0f78fa1b0a9e9592296d019438b2035d7f0",
+    "backend/scripts/test-redis.ps1": "722f15befb22908eaa5728344afc5a3341077e3d3701c6d8c8de7bb483896b13"
+  },
+  "completed_at": "2026-10-04T20:20:23+08:00"
+}

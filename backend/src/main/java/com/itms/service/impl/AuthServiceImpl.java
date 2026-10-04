@@ -5,6 +5,7 @@ import com.itms.dto.LoginResponse;
 import com.itms.entity.User;
 import com.itms.repository.UserRepository;
 import com.itms.service.AuthService;
+import com.itms.service.RedisAuthService;
 import com.itms.service.SystemLogService;
 import com.itms.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ public class AuthServiceImpl implements AuthService {
     private final UserRepository userRepository;
     private final JwtUtil jwtUtil;
     private final SystemLogService systemLogService;
+    private final RedisAuthService redisAuthService;
 
     @Override
     public LoginResponse login(LoginRequest request) {
@@ -36,8 +38,14 @@ public class AuthServiceImpl implements AuthService {
 
         // 验证密码（生产环境应使用BCrypt加密）
         if (!user.getPassword().equals(request.getPassword())) {
+            long failures = redisAuthService.recordLoginFailure(request.getUsername());
+            if (failures >= 5) {
+                throw new RuntimeException("登录失败次数过多，请10分钟后重试");
+            }
             throw new RuntimeException("用户名或密码错误");
         }
+
+        redisAuthService.clearLoginFailures(request.getUsername());
 
         // 记录最近登录时间
         user.setLastLoginTime(LocalDateTime.now());
@@ -59,9 +67,11 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public void logout(Long userId) {
-        // JWT无状态登出，客户端清除Token即可
-        // 可在Redis中维护黑名单实现
+    public void logout(String authorizationHeader) {
+        if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
+            return;
+        }
+        redisAuthService.revokeToken(authorizationHeader.substring(7).trim());
     }
 }
 

@@ -15,9 +15,6 @@ public interface AuthService {
      */
     LoginResponse login(LoginRequest request);
 
-    /**
-     * 用户登出
-     * @param userId 用户ID
-     */
-    void logout(Long userId);
+    /** Revokes the presented JWT until its natural expiration time. */
+    void logout(String authorizationHeader);
 }

@@ -2,6 +2,13 @@
 
 基于 Spring Boot、React、PostgreSQL、Redis、Kafka 和 Python AI 服务的智能交通管理系统示例项目。
 
+## Redis 回归测试与面试复习
+
+- [运行测试、用例判定与 Git 仓库说明](docs/testing/quickstart.md)
+- [28 项补测清单、证据与已知边界](docs/testing/redis-regression.md)
+
+在 `backend` 运行 `mvn test` 执行 19 个普通测试；启动 Docker Desktop 后，使用 PowerShell 7 运行 `pwsh -File ./scripts/test-redis.ps1` 执行普通测试及 9 个真实 Redis 组件集成测试。临时 Redis 自动创建、清理；PostgreSQL 和告警依赖采用 mock，测试结果不代表整套系统压测。
+
 ## 功能模块
 
 - 实时交通监控：车流量、速度、拥堵等级、路口热力图

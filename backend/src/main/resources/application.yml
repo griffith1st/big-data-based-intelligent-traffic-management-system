@@ -43,6 +43,13 @@ spring:
       auto-offset-reset: latest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  # Redis：JWT 黑名单与登录失败计数。Docker 中通过 SPRING_DATA_REDIS_HOST=redis 注入。
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      connect-timeout: 2s
+      timeout: 2s
 
 jwt:
   secret: ${JWT_SECRET:ITMS-BD-DevSecret-Change-Me-At-Least-32-Bytes}

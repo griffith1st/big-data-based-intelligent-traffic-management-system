@@ -1,0 +1,6 @@
+2026-10-04: isolated backend copy, removed evictTrafficCaches() call.
+Original project production code untouched.
+Target test: saveNormalizesAndInvalidatesBothCachesAfterDatabaseAndAlert
+Tests: 1; assertion failures: 1; errors: 0; skipped: 0.
+Reason: expected deletion of [itms:traffic:realtime, itms:traffic:intersection-summary] did not occur.
+Original project: 28 passed; 0 failed; 0 errors; 0 skipped.

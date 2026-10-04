@@ -1,6 +1,7 @@
 package com.itms.config;
 
 import com.itms.util.JwtUtil;
+import com.itms.service.RedisAuthService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,6 +33,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtUtil jwtUtil;
+    private final RedisAuthService redisAuthService;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -77,7 +79,7 @@ public class SecurityConfig {
 
                 if (authHeader != null && authHeader.startsWith("Bearer ")) {
                     String token = authHeader.substring(7);
-                    if (jwtUtil.validateToken(token)) {
+                    if (jwtUtil.validateToken(token) && !redisAuthService.isTokenRevoked(token)) {
                         String username = jwtUtil.getUsernameFromToken(token);
                         // 设置认证信息到SecurityContext
                         var auth = new org.springframework.security
