@@ -10,6 +10,11 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -17,6 +22,12 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 
 @Service
 @RequiredArgsConstructor
@@ -30,14 +41,25 @@ public class TrafficDataServiceImpl implements TrafficDataService {
     private static final String REALTIME_CACHE_KEY = "itms:traffic:realtime";
     private static final String SUMMARY_CACHE_KEY = "itms:traffic:intersection-summary";
     private static final java.time.Duration TRAFFIC_CACHE_TTL = java.time.Duration.ofSeconds(5);
+    private static final TypeReference<List<Map<String, Object>>> TRAFFIC_ROWS = new TypeReference<>() {};
+
+    // These guards coordinate this application instance only. Redis keys are
+    // shared, but cache generations and in-flight loads are process-local.
+    private final Object cacheMutationLock = new Object();
+    private volatile long cacheGeneration;
+    private final Map<CacheLoadKey, CompletableFuture<List<Map<String, Object>>>> inFlightLoads = new ConcurrentHashMap<>();
+
+    @Value("${itms.traffic.cache.wait-timeout-ms:1500}")
+    private long cacheWaitMillis = 1500;
+
+    private record CacheLoadKey(String key, long generation) {}
 
     @Override
     public List<Map<String, Object>> getRealTimeData() {
-        List<Map<String, Object>> cached = readCache(REALTIME_CACHE_KEY,
-                new TypeReference<List<Map<String, Object>>>() {});
-        if (cached != null) {
-            return cached;
-        }
+        return cachedRows(REALTIME_CACHE_KEY, this::loadRealTimeData);
+    }
+
+    private List<Map<String, Object>> loadRealTimeData() {
         ensureSeedData();
         List<Object[]> rawData = trafficDataRepository.findRealTimeCongestion();
         List<Map<String, Object>> result = new ArrayList<>();
@@ -62,7 +84,6 @@ public class TrafficDataServiceImpl implements TrafficDataService {
             item.put("occupancyRate", row[11]);
             result.add(item);
         }
-        writeCache(REALTIME_CACHE_KEY, result);
         return result;
     }
 
@@ -111,11 +132,10 @@ public class TrafficDataServiceImpl implements TrafficDataService {
 
     @Override
     public List<Map<String, Object>> getIntersectionSummary() {
-        List<Map<String, Object>> cached = readCache(SUMMARY_CACHE_KEY,
-                new TypeReference<List<Map<String, Object>>>() {});
-        if (cached != null) {
-            return cached;
-        }
+        return cachedRows(SUMMARY_CACHE_KEY, this::loadIntersectionSummary);
+    }
+
+    private List<Map<String, Object>> loadIntersectionSummary() {
         List<Map<String, Object>> rows = getRealTimeData();
         Map<String, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
         for (Map<String, Object> row : rows) {
@@ -165,7 +185,6 @@ public class TrafficDataServiceImpl implements TrafficDataService {
             summary.put("timestamp", timestamp);
             result.add(summary);
         }
-        writeCache(SUMMARY_CACHE_KEY, result);
         return result;
     }
 
@@ -173,8 +192,13 @@ public class TrafficDataServiceImpl implements TrafficDataService {
     public TrafficData saveTrafficData(TrafficData data) {
         normalize(data);
         TrafficData saved = trafficDataRepository.save(data);
-        alertService.upsertCongestionAlert(saved);
-        evictTrafficCaches();
+        try {
+            alertService.upsertCongestionAlert(saved);
+        } finally {
+            // The repository write succeeded. A subsequent alert failure
+            // must not skip invalidation of the traffic update.
+            evictAfterCommitIfNeeded();
+        }
         return saved;
     }
 
@@ -233,6 +257,66 @@ public class TrafficDataServiceImpl implements TrafficDataService {
         }
     }
 
+    private List<Map<String, Object>> cachedRows(String key, Supplier<List<Map<String, Object>>> loader) {
+        // Preserve the caller's transaction view, including its own writes.
+        // Neither consume a shared snapshot nor publish uncommitted data.
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            return loader.get();
+        }
+        // Capture before reading any dependency. A summary started after a
+        // write must not join an older real-time load still in progress.
+        long generation = cacheGeneration;
+        List<Map<String, Object>> cached = readCache(key, TRAFFIC_ROWS);
+        if (cached != null) {
+            return cached;
+        }
+        CacheLoadKey loadKey = new CacheLoadKey(key, generation);
+        CompletableFuture<List<Map<String, Object>>> mine = new CompletableFuture<>();
+        CompletableFuture<List<Map<String, Object>>> existing = inFlightLoads.putIfAbsent(loadKey, mine);
+        if (existing != null) {
+            return awaitLoad(existing);
+        }
+        try {
+            // A previous owner may have populated Redis between GET and
+            // putIfAbsent. Redis outage still shares this owner's DB result.
+            cached = readCache(key, TRAFFIC_ROWS);
+            List<Map<String, Object>> result = cached != null ? cached : loader.get();
+            synchronized (cacheMutationLock) {
+                if (cached == null && generation == cacheGeneration) {
+                    writeCache(key, result);
+                }
+            }
+            mine.complete(result);
+            return result;
+        } catch (RuntimeException | Error ex) {
+            mine.completeExceptionally(ex);
+            throw ex;
+        } finally {
+            // Only the owner removes a flight. A timed-out follower must not
+            // allow another DB load while the first owner is still running.
+            inFlightLoads.remove(loadKey, mine);
+        }
+    }
+
+    private List<Map<String, Object>> awaitLoad(CompletableFuture<List<Map<String, Object>>> load) {
+        try {
+            return load.get(Math.max(1, cacheWaitMillis), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException ex) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Traffic cache reload is busy; retry later", ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Traffic request interrupted", ex);
+        } catch (ExecutionException ex) {
+            if (ex.getCause() instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (ex.getCause() instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("Traffic cache reload failed", ex.getCause());
+        }
+    }
+
     private <T> T readCache(String key, TypeReference<T> type) {
         try {
             String json = redis.opsForValue().get(key);
@@ -252,11 +336,37 @@ public class TrafficDataServiceImpl implements TrafficDataService {
     }
 
     private void evictTrafficCaches() {
-        try {
-            redis.delete(List.of(REALTIME_CACHE_KEY, SUMMARY_CACHE_KEY));
-        } catch (Exception ignored) {
-            // Short TTL bounds staleness when Redis is unavailable.
+        synchronized (cacheMutationLock) {
+            try {
+                redis.delete(List.of(REALTIME_CACHE_KEY, SUMMARY_CACHE_KEY));
+            } catch (Exception ignored) {
+                // Existing Redis entries retain their original short TTL.
+                // The local generation still prevents older loads refilling.
+            } finally {
+                // Advance only after DEL has completed. A reader that began
+                // while invalidation was in progress remains in the old
+                // generation and cannot publish after this point.
+                cacheGeneration++;
+            }
         }
+    }
+
+    private boolean transactionalContext() {
+        return TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive();
+    }
+
+    private void evictAfterCommitIfNeeded() {
+        if (!transactionalContext()) {
+            evictTrafficCaches();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                evictTrafficCaches();
+            }
+        });
     }
 
     public static int calculateCongestionLevel(Integer vehicleCount, Double avgSpeed) {

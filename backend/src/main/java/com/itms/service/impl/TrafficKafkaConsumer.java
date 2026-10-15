@@ -1,29 +1,22 @@
 package com.itms.service.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.itms.entity.TrafficData;
-import com.itms.service.TrafficDataService;
+import com.itms.service.TrafficIngestionService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class TrafficKafkaConsumer {
 
-    private final ObjectMapper objectMapper;
-    private final TrafficDataService trafficDataService;
+    private final TrafficIngestionService ingestionService;
 
     @KafkaListener(topics = "${itms.kafka.topic.traffic-data:traffic-data}",
-            groupId = "${spring.kafka.consumer.group-id:itms-traffic-consumer}")
-    public void consume(String payload) {
-        try {
-            TrafficData data = objectMapper.readValue(payload, TrafficData.class);
-            trafficDataService.saveTrafficData(data);
-        } catch (Exception ex) {
-            log.warn("Failed to consume traffic-data Kafka message: {}", payload, ex);
-        }
+            groupId = "${spring.kafka.consumer.group-id:itms-traffic-consumer}",
+            concurrency = "${itms.kafka.consumer.concurrency:1}")
+    public void consume(ConsumerRecord<String, String> record) {
+        // Let the container retry or publish to the DLT before advancing the offset.
+        ingestionService.ingest(record);
     }
 }

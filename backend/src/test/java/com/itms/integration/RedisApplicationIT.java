@@ -149,7 +149,7 @@ class RedisApplicationIT {
         when(db.findRealTimeCongestion()).thenReturn(List.<Object[]>of(row(900,20,"NORTH")));
         assertThat(traffic.getIntersectionSummary().get(0).get("totalVehicleCount")).isEqualTo(900);
     }
-    @Test @Tag("known-limitation") void oldReadCanRefillStaleValueAfterWriterInvalidates() throws Exception {
+    @Test void oldReadDoesNotRefillStaleValueAfterWriterInvalidates() throws Exception {
         var readStarted=new CountDownLatch(1); var resumeRead=new CountDownLatch(1);
         var executor=Executors.newSingleThreadExecutor();
         when(db.findRealTimeCongestion()).thenAnswer(inv -> {
@@ -165,10 +165,32 @@ class RedisApplicationIT {
             // doReturn avoids executing the previous blocking Answer while restubbing.
             doReturn(List.<Object[]>of(row(900,20,"NORTH"))).when(db).findRealTimeCongestion();
             resumeRead.countDown(); assertThat(reader.get(5,TimeUnit.SECONDS).get(0).get("vehicleCount")).isEqualTo(600);
-            // The subsequent caller sees stale 600 although the DB boundary now exposes 900.
-            assertThat(traffic.getRealTimeData().get(0).get("vehicleCount")).isEqualTo(600);
+            // A reader which started before the save may finish with its old snapshot,
+            // but that snapshot must not become the next caller's cache value.
+            assertThat(traffic.getRealTimeData().get(0).get("vehicleCount")).isEqualTo(900);
         } finally {
             resumeRead.countDown(); executor.shutdownNow(); assertThat(executor.awaitTermination(5,TimeUnit.SECONDS)).isTrue();
         }
+    }
+    @Test void concurrentFailuresKeepEveryIncrementAndAWindowTtl() throws Exception {
+        var pool = Executors.newFixedThreadPool(8);
+        try {
+            var tasks = new ArrayList<Callable<Long>>();
+            for (int i = 0; i < 80; i++) tasks.add(() -> authState.recordLoginFailure("parallel"));
+            var counts = new HashSet<Long>();
+            for (var future : pool.invokeAll(tasks)) counts.add(future.get(5, TimeUnit.SECONDS));
+            assertThat(counts).hasSize(80).contains(1L, 80L);
+            String key = "itms:auth:login-failed:" + digest("parallel");
+            assertThat(redis.opsForValue().get(key)).isEqualTo("80");
+            assertThat(redis.getExpire(key, TimeUnit.SECONDS)).isBetween(580L, 600L);
+        } finally {
+            pool.shutdownNow(); assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+    @Test void oldCounterWithoutExpirationGetsAWindowOnNextFailure() throws Exception {
+        String key = "itms:auth:login-failed:" + digest("legacy");
+        redis.opsForValue().set(key, "4");
+        assertThat(authState.recordLoginFailure("legacy")).isEqualTo(5L);
+        assertThat(redis.getExpire(key, TimeUnit.SECONDS)).isBetween(590L, 600L);
     }
 }

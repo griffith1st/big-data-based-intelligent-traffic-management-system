@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
@@ -21,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
 @Service
@@ -32,12 +35,13 @@ public class TrafficSimulatorServiceImpl implements TrafficSimulatorService {
     private final TrafficDataService trafficDataService;
     private final Random random = new Random();
     private final Map<String, Integer> previousCounts = new ConcurrentHashMap<>();
+    private final ReentrantLock generationLock = new ReentrantLock();
 
     @Value("${itms.kafka.topic.traffic-data:traffic-data}")
     private String topic;
 
     @Value("${itms.traffic.simulator.enabled:true}")
-    private boolean running;
+    private volatile boolean running;
 
     @Override
     public void start() {
@@ -56,13 +60,33 @@ public class TrafficSimulatorServiceImpl implements TrafficSimulatorService {
 
     @Scheduled(fixedDelayString = "${itms.traffic.simulator.interval-ms:5000}", initialDelay = 2500)
     public void scheduledGenerate() {
-        if (running) {
-            generateOnce();
+        // A manual batch may already be running. Skip this tick instead of
+        // queueing a second batch and racing the per-direction state.
+        if (!running || !generationLock.tryLock()) {
+            return;
+        }
+        try {
+            if (running) {
+                generateBatch();
+            }
+        } finally {
+            generationLock.unlock();
         }
     }
 
     @Override
     public List<TrafficData> generateOnce() {
+        if (!generationLock.tryLock()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "A traffic generation batch is already running");
+        }
+        try {
+            return generateBatch();
+        } finally {
+            generationLock.unlock();
+        }
+    }
+
+    private List<TrafficData> generateBatch() {
         LocalDateTime now = LocalDateTime.now();
         List<TrafficData> batch = new ArrayList<>();
 

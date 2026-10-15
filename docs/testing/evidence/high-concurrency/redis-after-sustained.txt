@@ -1,0 +1,6 @@
+total_commands_processed:443782
+rejected_connections:0
+expired_keys:33
+evicted_keys:0
+keyspace_hits:252499
+keyspace_misses:190773

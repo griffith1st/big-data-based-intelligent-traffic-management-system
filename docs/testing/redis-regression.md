@@ -1,5 +1,7 @@
 # ITMS Redis 补测说明
 
+> 历史快照：本文与 `evidence/` 文件保留的是 2026-10-04 的 28 项补测结果。2026-10-16 高并发改造已更新缓存并发控制、事务提交后失效和登录计数 Lua 等行为；本文当时的 known-limitation、用例数量和 Docker/Redis 版本不代表当前状态。最新设计见 [高并发方案](../architecture/high-concurrency-plan.md)，最新运行方法与验证范围见 [高并发测试说明](high-concurrency.md)。历史证据保留用于追溯。
+
 日期：2026-10-04。基于当前本地工作区补充测试，保留既有业务代码。本次新增测试、测试运行入口、Maven 集成测试 profile 和证据文档。
 
 ## 结果与层次

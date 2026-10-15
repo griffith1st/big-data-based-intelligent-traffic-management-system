@@ -2,6 +2,11 @@ package com.itms.config;
 
 import com.itms.util.JwtUtil;
 import com.itms.service.RedisAuthService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.web.filter.CorsFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,7 +41,7 @@ public class SecurityConfig {
     private final RedisAuthService redisAuthService;
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, RequestAdmissionFilter admission) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
@@ -45,14 +50,29 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/swagger-ui/**", "/api-docs/**").permitAll()
-                .requestMatchers("/actuator/**").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                 .requestMatchers("/ws/**").permitAll()
                 .anyRequest().authenticated()
             )
+            .addFilterAfter(admission, CorsFilter.class)
             .addFilterBefore(jwtAuthenticationFilter(),
                 UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    @Bean
+    public RequestAdmissionFilter requestAdmissionFilter(
+            @Value("${itms.concurrency.max-in-flight:24}") int maxInFlight,
+            ObjectMapper mapper, MeterRegistry metrics) {
+        return new RequestAdmissionFilter(maxInFlight, mapper, metrics);
+    }
+
+    @Bean
+    public FilterRegistrationBean<RequestAdmissionFilter> admissionRegistration(RequestAdmissionFilter filter) {
+        var registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false); // Run once inside Security, after CORS.
+        return registration;
     }
 
     @Bean
@@ -61,6 +81,7 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(List.of("*"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type"));
+        configuration.setExposedHeaders(List.of("Retry-After"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

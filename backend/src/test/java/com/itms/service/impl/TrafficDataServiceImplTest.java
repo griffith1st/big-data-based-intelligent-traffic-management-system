@@ -5,7 +5,6 @@ import com.itms.repository.TrafficDataRepository;
 import com.itms.service.TrafficAlertService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Tag;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import java.time.Duration;
@@ -95,10 +94,10 @@ class TrafficDataServiceImplTest {
         assertThatThrownBy(() -> service.saveTrafficData(traffic(700))).hasMessage("write failed");
         verifyNoInteractions(alerts); verify(redis, never()).delete(anyCollection());
     }
-    @Test @Tag("known-limitation") void characterizesAlertFailureSkippingInvalidationAfterSave() {
+    @Test void alertFailureStillInvalidatesCommittedTrafficData() {
         var data = traffic(700); when(db.save(data)).thenReturn(data);
         doThrow(new IllegalStateException("alert failed")).when(alerts).upsertCongestionAlert(data);
         assertThatThrownBy(() -> service.saveTrafficData(data)).hasMessage("alert failed");
-        verify(db).save(data); verify(redis, never()).delete(anyCollection());
+        verify(db).save(data); verify(redis).delete(List.of(REALTIME, SUMMARY));
     }
 }

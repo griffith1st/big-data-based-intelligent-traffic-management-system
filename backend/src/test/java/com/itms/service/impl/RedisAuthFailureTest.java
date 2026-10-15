@@ -3,7 +3,7 @@ package com.itms.service.impl;
 import org.junit.jupiter.api.*;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
-import java.time.Duration;
+import org.springframework.data.redis.core.script.RedisScript;
 import java.util.concurrent.TimeUnit;
 import static com.itms.support.Fixtures.*;
 import static org.assertj.core.api.Assertions.*;
@@ -28,10 +28,15 @@ class RedisAuthFailureTest {
         assertThatCode(() -> service.revokeToken(token)).doesNotThrowAnyException();
         verify(values).set(anyString(),eq("1"),anyLong(),eq(TimeUnit.MILLISECONDS));
     }
-    @Test @Tag("known-limitation") void characterizesFailureBetweenIncrementAndExpire() {
-        when(values.increment(anyString())).thenReturn(1L);
-        when(redis.expire(anyString(),any(Duration.class))).thenThrow(new IllegalStateException("expire failed after increment"));
-        assertThatThrownBy(() -> service.recordLoginFailure("alice")).hasMessage("expire failed after increment");
-        verify(values).increment(anyString());
+    @Test void failedCounterCommandPropagatesInsteadOfReturningAFalseZero() {
+        when(redis.execute(any(RedisScript.class), anyList(), any(Object[].class)))
+                .thenThrow(new IllegalStateException("atomic counter unavailable"));
+        assertThatThrownBy(() -> service.recordLoginFailure("alice")).hasMessage("atomic counter unavailable");
+        verify(values, never()).increment(anyString());
+    }
+    @Test void counterUsesOneAtomicCommandAndReturnsItsResult() {
+        when(redis.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(3L);
+        assertThat(service.recordLoginFailure(" Alice ")).isEqualTo(3L);
+        verify(values, never()).increment(anyString());
     }
 }

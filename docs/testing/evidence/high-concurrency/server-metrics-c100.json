@@ -1,0 +1,435 @@
+{
+  "concurrency": 100,
+  "load_exit_code": 1,
+  "sampling": "sequential HTTP metric snapshots every 0.5s plus request time; includes warmup; not exact peaks",
+  "jvm_memory_used_scope": "sum of reported pools, heap and non-heap",
+  "samples": [
+    {
+      "at": "2026-10-15T16:51:06.992949+00:00",
+      "metrics": {
+        "process.cpu.usage": [
+          {
+            "statistic": "VALUE",
+            "value": 0.15103773441445634
+          }
+        ],
+        "jvm.memory.used": [
+          {
+            "statistic": "VALUE",
+            "value": 233125792.0
+          }
+        ],
+        "jvm.gc.pause": [
+          {
+            "statistic": "COUNT",
+            "value": 94.0
+          },
+          {
+            "statistic": "TOTAL_TIME",
+            "value": 0.165
+          },
+          {
+            "statistic": "MAX",
+            "value": 0.01
+          }
+        ],
+        "hikaricp.connections.active": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.pending": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.timeout": [
+          {
+            "statistic": "COUNT",
+            "value": 0.0
+          }
+        ],
+        "itms.http.admission.active": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "itms.http.admission.rejected": [
+          {
+            "statistic": "COUNT",
+            "value": 571.0
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-15T16:51:07.575912+00:00",
+      "metrics": {
+        "process.cpu.usage": [
+          {
+            "statistic": "VALUE",
+            "value": 0.08035468957927326
+          }
+        ],
+        "jvm.memory.used": [
+          {
+            "statistic": "VALUE",
+            "value": 360610360.0
+          }
+        ],
+        "jvm.gc.pause": [
+          {
+            "statistic": "COUNT",
+            "value": 96.0
+          },
+          {
+            "statistic": "TOTAL_TIME",
+            "value": 0.167
+          },
+          {
+            "statistic": "MAX",
+            "value": 0.01
+          }
+        ],
+        "hikaricp.connections.active": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.pending": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.timeout": [
+          {
+            "statistic": "COUNT",
+            "value": 0.0
+          }
+        ],
+        "itms.http.admission.active": [
+          {
+            "statistic": "VALUE",
+            "value": 2.0
+          }
+        ],
+        "itms.http.admission.rejected": [
+          {
+            "statistic": "COUNT",
+            "value": 1471.0
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-15T16:51:08.187512+00:00",
+      "metrics": {
+        "process.cpu.usage": [
+          {
+            "statistic": "VALUE",
+            "value": 0.1652941172114602
+          }
+        ],
+        "jvm.memory.used": [
+          {
+            "statistic": "VALUE",
+            "value": 342523312.0
+          }
+        ],
+        "jvm.gc.pause": [
+          {
+            "statistic": "COUNT",
+            "value": 102.0
+          },
+          {
+            "statistic": "TOTAL_TIME",
+            "value": 0.174
+          },
+          {
+            "statistic": "MAX",
+            "value": 0.01
+          }
+        ],
+        "hikaricp.connections.active": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.pending": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.timeout": [
+          {
+            "statistic": "COUNT",
+            "value": 0.0
+          }
+        ],
+        "itms.http.admission.active": [
+          {
+            "statistic": "VALUE",
+            "value": 6.0
+          }
+        ],
+        "itms.http.admission.rejected": [
+          {
+            "statistic": "COUNT",
+            "value": 1625.0
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-15T16:51:08.863443+00:00",
+      "metrics": {
+        "process.cpu.usage": [
+          {
+            "statistic": "VALUE",
+            "value": 0.1298481146865598
+          }
+        ],
+        "jvm.memory.used": [
+          {
+            "statistic": "VALUE",
+            "value": 259622304.0
+          }
+        ],
+        "jvm.gc.pause": [
+          {
+            "statistic": "COUNT",
+            "value": 109.0
+          },
+          {
+            "statistic": "TOTAL_TIME",
+            "value": 0.179
+          },
+          {
+            "statistic": "MAX",
+            "value": 0.01
+          }
+        ],
+        "hikaricp.connections.active": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.pending": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.timeout": [
+          {
+            "statistic": "COUNT",
+            "value": 0.0
+          }
+        ],
+        "itms.http.admission.active": [
+          {
+            "statistic": "VALUE",
+            "value": 2.0
+          }
+        ],
+        "itms.http.admission.rejected": [
+          {
+            "statistic": "COUNT",
+            "value": 1728.0
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-15T16:51:09.463815+00:00",
+      "metrics": {
+        "process.cpu.usage": [
+          {
+            "statistic": "VALUE",
+            "value": 0.1234613499470152
+          }
+        ],
+        "jvm.memory.used": [
+          {
+            "statistic": "VALUE",
+            "value": 242835912.0
+          }
+        ],
+        "jvm.gc.pause": [
+          {
+            "statistic": "COUNT",
+            "value": 115.0
+          },
+          {
+            "statistic": "TOTAL_TIME",
+            "value": 0.186
+          },
+          {
+            "statistic": "MAX",
+            "value": 0.01
+          }
+        ],
+        "hikaricp.connections.active": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.pending": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.timeout": [
+          {
+            "statistic": "COUNT",
+            "value": 0.0
+          }
+        ],
+        "itms.http.admission.active": [
+          {
+            "statistic": "VALUE",
+            "value": 21.0
+          }
+        ],
+        "itms.http.admission.rejected": [
+          {
+            "statistic": "COUNT",
+            "value": 2038.0
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-15T16:51:10.107582+00:00",
+      "metrics": {
+        "process.cpu.usage": [
+          {
+            "statistic": "VALUE",
+            "value": 0.12588135072421452
+          }
+        ],
+        "jvm.memory.used": [
+          {
+            "statistic": "VALUE",
+            "value": 306788760.0
+          }
+        ],
+        "jvm.gc.pause": [
+          {
+            "statistic": "COUNT",
+            "value": 120.0
+          },
+          {
+            "statistic": "TOTAL_TIME",
+            "value": 0.191
+          },
+          {
+            "statistic": "MAX",
+            "value": 0.01
+          }
+        ],
+        "hikaricp.connections.active": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.pending": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.timeout": [
+          {
+            "statistic": "COUNT",
+            "value": 0.0
+          }
+        ],
+        "itms.http.admission.active": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "itms.http.admission.rejected": [
+          {
+            "statistic": "COUNT",
+            "value": 2144.0
+          }
+        ]
+      }
+    },
+    {
+      "at": "2026-10-15T16:51:10.298251+00:00",
+      "metrics": {
+        "process.cpu.usage": [
+          {
+            "statistic": "VALUE",
+            "value": 0.12588135072421452
+          }
+        ],
+        "jvm.memory.used": [
+          {
+            "statistic": "VALUE",
+            "value": 308931176.0
+          }
+        ],
+        "jvm.gc.pause": [
+          {
+            "statistic": "COUNT",
+            "value": 120.0
+          },
+          {
+            "statistic": "TOTAL_TIME",
+            "value": 0.191
+          },
+          {
+            "statistic": "MAX",
+            "value": 0.01
+          }
+        ],
+        "hikaricp.connections.active": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.pending": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "hikaricp.connections.timeout": [
+          {
+            "statistic": "COUNT",
+            "value": 0.0
+          }
+        ],
+        "itms.http.admission.active": [
+          {
+            "statistic": "VALUE",
+            "value": 0.0
+          }
+        ],
+        "itms.http.admission.rejected": [
+          {
+            "statistic": "COUNT",
+            "value": 2144.0
+          }
+        ]
+      }
+    }
+  ]
+}

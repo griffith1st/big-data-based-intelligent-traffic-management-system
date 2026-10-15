@@ -5,6 +5,7 @@ import com.itms.util.JwtUtil;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -12,6 +13,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -27,6 +30,13 @@ public class RedisAuthServiceImpl implements RedisAuthService {
     private static final String REVOKED_PREFIX = "itms:auth:revoked:";
     private static final String FAILED_PREFIX = "itms:auth:login-failed:";
     private static final Duration FAILURE_WINDOW = Duration.ofMinutes(10);
+    private static final DefaultRedisScript<Long> INCREMENT_FAILURE = new DefaultRedisScript<>("""
+            local count = redis.call('INCR', KEYS[1])
+            if redis.call('PTTL', KEYS[1]) < 0 then
+                redis.call('PEXPIRE', KEYS[1], ARGV[1])
+            end
+            return count
+            """, Long.class);
 
     private final StringRedisTemplate redis;
     private final JwtUtil jwtUtil;
@@ -55,11 +65,13 @@ public class RedisAuthServiceImpl implements RedisAuthService {
     @Override
     public long recordLoginFailure(String username) {
         String key = failedKey(username);
-        Long count = redis.opsForValue().increment(key);
-        if (count != null && count == 1L) {
-            redis.expire(key, FAILURE_WINDOW);
+        // Counter creation and expiration are one Redis operation. Also repairs
+        // legacy counters left without a TTL by the previous INCR/EXPIRE pair.
+        Long count = redis.execute(INCREMENT_FAILURE, List.of(key), Long.toString(FAILURE_WINDOW.toMillis()));
+        if (count == null) {
+            throw new IllegalStateException("Redis did not return a login failure count");
         }
-        return count == null ? 0L : count;
+        return count;
     }
 
     @Override
@@ -72,7 +84,7 @@ public class RedisAuthServiceImpl implements RedisAuthService {
     }
 
     private String failedKey(String username) {
-        return FAILED_PREFIX + sha256(username == null ? "" : username.trim().toLowerCase());
+        return FAILED_PREFIX + sha256(username == null ? "" : username.trim().toLowerCase(Locale.ROOT));
     }
 
     private String sha256(String value) {

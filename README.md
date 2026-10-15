@@ -2,12 +2,21 @@
 
 基于 Spring Boot、React、PostgreSQL、Redis、Kafka 和 Python AI 服务的智能交通管理系统示例项目。
 
+## 高并发改造与验证
+
+- [具体方案、已落地代码与后续边界](docs/architecture/high-concurrency-plan.md)
+- [并发回归、真实组件验证与压测说明](docs/testing/high-concurrency.md)
+- [66 项 Java 回归与真实 HTTP 压测结果](docs/testing/evidence/high-concurrency/README.md)
+- [Python HTTP 混合读压测工具使用方法](backend/scripts/load/README.md)
+
+本次增加单实例 API 并发准入、缓存回源合并与事务提交后失效、原子登录失败计数、模拟器批次保护，以及 Kafka 重试/DLT 和同组同 offset 事务去重。Kafka 默认保留单分区/单并发，跨 offset 业务事件幂等和多实例一致性仍属于扩展项。容量结论以具体环境的压测 JSON/Markdown 为准。
+
 ## Redis 回归测试与面试复习
 
 - [运行测试、用例判定与 Git 仓库说明](docs/testing/quickstart.md)
 - [28 项补测清单、证据与已知边界](docs/testing/redis-regression.md)
 
-在 `backend` 运行 `mvn test` 执行 19 个普通测试；启动 Docker Desktop 后，使用 PowerShell 7 运行 `pwsh -File ./scripts/test-redis.ps1` 执行普通测试及 9 个真实 Redis 组件集成测试。临时 Redis 自动创建、清理；PostgreSQL 和告警依赖采用 mock，测试结果不代表整套系统压测。
+下列 19 个普通测试和 9 个 Redis 集成测试是 2026-10-04 的历史快照；当前测试清单与验证边界请看上方高并发测试说明。在 `backend` 运行 `mvn test` 执行普通测试；Docker 可用时，使用 PowerShell 7 运行 `pwsh -File ./scripts/test-redis.ps1` 执行普通测试及真实 Redis 组件集成测试。临时 Redis 自动创建、清理；历史 Redis 组中的 PostgreSQL 和告警依赖采用 mock，结果不代表整套系统压测。
 
 ## 功能模块
 

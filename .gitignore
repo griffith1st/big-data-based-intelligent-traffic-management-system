@@ -10,6 +10,7 @@ dist/
 
 # 后端依赖
 target/
+target-concurrency/
 .idea/
 *.iml
 *.ipr

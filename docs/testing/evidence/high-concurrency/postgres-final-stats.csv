@@ -1,0 +1,2 @@
+numbackends,xact_commit,xact_rollback,deadlocks
+6,232,1,0

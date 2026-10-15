@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-10-15T16:51:03.772462+00:00",
+  "passed": false,
+  "parameters": {
+    "base_url": "http://127.0.0.1:18080",
+    "concurrency": 50,
+    "requests": 10000,
+    "timeout_seconds": 3.0,
+    "warmup_requests": 300,
+    "max_error_rate": 0.01,
+    "p95_threshold_ms": 200.0,
+    "mix": {
+      "/api/traffic/realtime": "1/3 round-robin",
+      "/api/traffic/heatmap": "1/3 round-robin",
+      "/api/traffic/summary": "1/3 round-robin"
+    },
+    "model": "closed-loop; one in-flight request per worker",
+    "credentials": "environment only; omitted"
+  },
+  "load_generator": {
+    "platform": "Windows-10-10.0.26100-SP0",
+    "python": "3.11.3",
+    "cpu": "Intel64 Family 6 Model 151 Stepping 2, GenuineIntel",
+    "logical_cpus": 24,
+    "physical_memory_bytes": 34075226112,
+    "scope": "load generator only; record server/container resources separately"
+  },
+  "git": {
+    "commit": "079e14434264abadc2805c0e68b1f638b9b556e0",
+    "working_tree_dirty": true
+  },
+  "summary": {
+    "total": 10000,
+    "success": 9429,
+    "rate_limited": 571,
+    "http_429": 571,
+    "http_5xx": 0,
+    "business_error": 0,
+    "timeout": 0,
+    "outcomes": {
+      "success": 9429,
+      "rate_limited": 571
+    },
+    "http_status_counts": {
+      "200": 9429,
+      "429": 571
+    },
+    "error_rate": 0.0571,
+    "duration_seconds": 2.916045,
+    "completed_rps": 3429.302,
+    "success_rps": 3233.489,
+    "latency_all": {
+      "p50_ms": 12.362,
+      "p95_ms": 27.767,
+      "p99_ms": 36.058,
+      "max_ms": 51.195
+    },
+    "latency_success": {
+      "p50_ms": 12.9,
+      "p95_ms": 28.085,
+      "p99_ms": 36.283,
+      "max_ms": 51.195
+    }
+  },
+  "warmup_summary": {
+    "total": 300,
+    "success": 300,
+    "rate_limited": 0,
+    "http_429": 0,
+    "http_5xx": 0,
+    "business_error": 0,
+    "timeout": 0,
+    "outcomes": {
+      "success": 300
+    },
+    "http_status_counts": {
+      "200": 300
+    },
+    "error_rate": 0.0,
+    "duration_seconds": 0.105949,
+    "completed_rps": 2831.546,
+    "success_rps": 2831.546,
+    "latency_all": {
+      "p50_ms": 7.106,
+      "p95_ms": 15.804,
+      "p99_ms": 18.249,
+      "max_ms": 21.168
+    },
+    "latency_success": {
+      "p50_ms": 7.106,
+      "p95_ms": 15.804,
+      "p99_ms": 18.249,
+      "max_ms": 21.168
+    }
+  },
+  "by_endpoint": {
+    "/api/traffic/realtime": {
+      "total": 3334,
+      "success": 3161,
+      "rate_limited": 173,
+      "http_429": 173,
+      "http_5xx": 0,
+      "business_error": 0,
+      "timeout": 0,
+      "outcomes": {
+        "success": 3161,
+        "rate_limited": 173
+      },
+      "http_status_counts": {
+        "200": 3161,
+        "429": 173
+      },
+      "error_rate": 0.05188962207558488,
+      "duration_seconds": 2.916045,
+      "completed_rps": 1143.329,
+      "success_rps": 1084.002,
+      "latency_all": {
+        "p50_ms": 17.043,
+        "p95_ms": 31.917,
+        "p99_ms": 39.237,
+        "max_ms": 50.74
+      },
+      "latency_success": {
+        "p50_ms": 17.641,
+        "p95_ms": 32.22,
+        "p99_ms": 39.378,
+        "max_ms": 50.74
+      }
+    },
+    "/api/traffic/heatmap": {
+      "total": 3333,
+      "success": 3178,
+      "rate_limited": 155,
+      "http_429": 155,
+      "http_5xx": 0,
+      "business_error": 0,
+      "timeout": 0,
+      "outcomes": {
+        "success": 3178,
+        "rate_limited": 155
+      },
+      "http_status_counts": {
+        "200": 3178,
+        "429": 155
+      },
+      "error_rate": 0.0465046504650465,
+      "duration_seconds": 2.916045,
+      "completed_rps": 1142.986,
+      "success_rps": 1089.832,
+      "latency_all": {
+        "p50_ms": 12.316,
+        "p95_ms": 25.929,
+        "p99_ms": 33.171,
+        "max_ms": 49.069
+      },
+      "latency_success": {
+        "p50_ms": 12.664,
+        "p95_ms": 26.214,
+        "p99_ms": 33.495,
+        "max_ms": 49.069
+      }
+    },
+    "/api/traffic/summary": {
+      "total": 3333,
+      "success": 3090,
+      "rate_limited": 243,
+      "http_429": 243,
+      "http_5xx": 0,
+      "business_error": 0,
+      "timeout": 0,
+      "outcomes": {
+        "success": 3090,
+        "rate_limited": 243
+      },
+      "http_status_counts": {
+        "200": 3090,
+        "429": 243
+      },
+      "error_rate": 0.07290729072907291,
+      "duration_seconds": 2.916045,
+      "completed_rps": 1142.986,
+      "success_rps": 1059.654,
+      "latency_all": {
+        "p50_ms": 9.273,
+        "p95_ms": 20.939,
+        "p99_ms": 28.867,
+        "max_ms": 51.195
+      },
+      "latency_success": {
+        "p50_ms": 9.518,
+        "p95_ms": 21.186,
+        "p99_ms": 29.053,
+        "max_ms": 51.195
+      }
+    }
+  }
+}

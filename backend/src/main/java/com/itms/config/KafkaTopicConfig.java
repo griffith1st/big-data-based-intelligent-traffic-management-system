@@ -10,7 +10,18 @@ import org.springframework.kafka.config.TopicBuilder;
 public class KafkaTopicConfig {
 
     @Bean
-    public NewTopic trafficDataTopic(@Value("${itms.kafka.topic.traffic-data:traffic-data}") String topic) {
-        return TopicBuilder.name(topic).partitions(1).replicas(1).build();
+    public NewTopic trafficDataTopic(
+            @Value("${itms.kafka.topic.traffic-data:traffic-data}") String topic,
+            @Value("${itms.kafka.topic.partitions:1}") int partitions,
+            @Value("${itms.kafka.topic.replicas:1}") int replicas) {
+        return TopicBuilder.name(topic).partitions(partitions).replicas(replicas).build();
+    }
+
+    @Bean
+    public NewTopic trafficDataDeadLetterTopic(
+            @Value("${itms.kafka.topic.traffic-data:traffic-data}") String topic,
+            @Value("${itms.kafka.topic.partitions:1}") int partitions,
+            @Value("${itms.kafka.topic.replicas:1}") int replicas) {
+        return TopicBuilder.name(topic + ".DLT").partitions(partitions).replicas(replicas).build();
     }
 }

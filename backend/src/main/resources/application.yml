@@ -1,5 +1,12 @@
 server:
   port: 8080
+  tomcat:
+    threads:
+      max: ${ITMS_HTTP_THREADS:64}
+      min-spare: 8
+    max-connections: 1024
+    accept-count: 64
+    connection-timeout: 5s
 
 spring:
   application:
@@ -13,15 +20,18 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:123456}
     driver-class-name: org.postgresql.Driver
     hikari:
-      connection-timeout: 5000
-      validation-timeout: 3000
+      connection-timeout: 2000
+      validation-timeout: 1000
       idle-timeout: 300000
       max-lifetime: 600000
-      maximum-pool-size: 30
+      maximum-pool-size: ${ITMS_DB_POOL_SIZE:20}
       minimum-idle: 5
       leak-detection-threshold: 10000
+      data-source-properties:
+        options: "-c statement_timeout=5000 -c lock_timeout=2000"
 
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: update
     show-sql: false
@@ -30,19 +40,34 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
 
+  task:
+    scheduling:
+      pool:
+        size: 2
+      thread-name-prefix: itms-scheduler-
+
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
-      retries: 0
+      retries: 3
+      acks: all
       properties:
         max.block.ms: 1000
+        enable.idempotence: true
+        delivery.timeout.ms: 10000
+        request.timeout.ms: 5000
+        linger.ms: 5
     consumer:
       group-id: itms-traffic-consumer
       auto-offset-reset: latest
+      enable-auto-commit: false
+      max-poll-records: 50
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
   # Redis：JWT 黑名单与登录失败计数。Docker 中通过 SPRING_DATA_REDIS_HOST=redis 注入。
   data:
     redis:
@@ -55,6 +80,12 @@ jwt:
   secret: ${JWT_SECRET:ITMS-BD-DevSecret-Change-Me-At-Least-32-Bytes}
   expiration: 86400000
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
 springdoc:
   api-docs:
     path: /api-docs
@@ -64,14 +95,18 @@ springdoc:
 
 logging:
   level:
-    com.itms: DEBUG
+    com.itms: INFO
     org.springframework.security: INFO
     org.springframework.web: INFO
 
 itms:
+  concurrency:
+    max-in-flight: ${ITMS_MAX_IN_FLIGHT:24}
   demo:
     reset-default-users: true
   traffic:
+    cache:
+      wait-timeout-ms: 1500
     data-interval: 5
     prediction-window: 30
     signal-optimize-interval: 60
@@ -81,6 +116,12 @@ itms:
   kafka:
     topic:
       traffic-data: traffic-data
+      partitions: ${ITMS_KAFKA_PARTITIONS:1}
+      replicas: ${ITMS_KAFKA_REPLICAS:1}
+    consumer:
+      concurrency: ${ITMS_KAFKA_CONCURRENCY:1}
+      retry-interval-ms: 1000
+      max-retries: 2
   websocket:
     endpoint: /ws/traffic
   cors:
