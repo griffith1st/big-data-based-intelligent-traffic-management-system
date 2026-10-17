@@ -2,7 +2,7 @@
 
 本文件记录 2026-10-17 版本的验证入口。它与 [项目学习地图](../project-guide.md)、[API 契约](../api-reference.md) 配合使用。历史 [2026-10-16 高并发证据](evidence/high-concurrency/README.md) 保持原样；当前认证增加每请求数据库账号查询，旧吞吐量不外推到当前版本。
 
-最终本地全量验证于2026-10-17 01:24完成：149个Java测试（失败/错误/跳过均0）、25个前端测试（7个套件）、新旧数据库两类迁移及重复执行、Java打包与前端构建通过。执行环境与报告见[本轮证据](evidence/project-completion/README.md)。本轮最后的Docker镜像重建受本机Docker Desktop启动故障影响，验证使用WSL原生依赖；镜像重建与GitHub CI状态单独记录。
+最终本地全量验证于2026-10-17 01:24完成：149个Java测试（失败/错误/跳过均0）、25个前端测试（7个套件）、新旧数据库两类迁移及重复执行、Java打包与前端构建通过。执行环境与报告见[本轮证据](evidence/project-completion/README.md)。本机使用WSL原生依赖；随后GitHub Actions运行38992566331完整通过，补齐最终Docker镜像构建及六服务Compose启动与HTTP验收。
 
 ## 1. 一键执行与结果入口
 
@@ -30,6 +30,8 @@ pwsh -File .\scripts\verify-project.ps1
 确切用例数量、失败/跳过数与执行结果由本轮报告记录；执行入口与场景定义本身不构成“已通过”的证据。
 
 一键摘要每轮重写，status=passed 才是该轮全部成功；failed 或遗留的 running 需要排查。测试JVM默认768MB堆、384MB元空间、4个可用CPU，可用 `-Ditms.test.jvm.args=...`覆盖；脚本在未设置环境变量时给Maven512MB、Node1536MB堆上限。Docker镜像构建和完整回归建议顺序执行，避免本机资源争抢导致引擎或JVM退出。
+
+GitHub工作流还会依次构建最终Docker镜像、启动完整Compose，执行[smoke-deployment.py](../../scripts/smoke-deployment.py)，再查询消费回执确认56条生成消息经过Kafka。该脚本也可在默认账号密码的本机演示环境独立执行：`python scripts/smoke-deployment.py --base-url http://127.0.0.1:13000 --backend-url http://127.0.0.1:18080`。它会停止自动模拟、创建少量演示数据并退出自己的会话，不是只读检查；改过默认密码时通过ITMS_SMOKE_PASSWORD环境变量传入。
 
 ## 2. 隔离组件：为何与日常 Compose 分开
 

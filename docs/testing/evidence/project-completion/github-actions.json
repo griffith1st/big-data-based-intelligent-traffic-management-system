@@ -1,0 +1,124 @@
+{
+  "run_id": 38992566331,
+  "url": "https://github.com/griffith1st/big-data-based-intelligent-traffic-management-system/actions/runs/38992566331",
+  "source_commit": "2ba31664af4ffd7487079bc4bb3ba2b14c383abd",
+  "status": "completed",
+  "conclusion": "success",
+  "started_at": "2026-10-17T01:50:55Z",
+  "updated_at": "2026-10-17T01:58:30Z",
+  "jobs": [
+    {
+      "id": 117277932690,
+      "name": "application",
+      "status": "completed",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:50:58Z",
+          "completed_at": "2026-10-17T01:50:59Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:51:00Z",
+          "completed_at": "2026-10-17T01:51:00Z"
+        },
+        {
+          "name": "Run actions/setup-java@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:51:00Z",
+          "completed_at": "2026-10-17T01:51:01Z"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:51:01Z",
+          "completed_at": "2026-10-17T01:51:02Z"
+        },
+        {
+          "name": "Run actions/setup-python@v5",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:51:02Z",
+          "completed_at": "2026-10-17T01:51:02Z"
+        },
+        {
+          "name": "Verify migrations, backend and frontend with isolated dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:51:02Z",
+          "completed_at": "2026-10-17T01:55:56Z"
+        },
+        {
+          "name": "Build final deployment images sequentially",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:55:56Z",
+          "completed_at": "2026-10-17T01:57:40Z"
+        },
+        {
+          "name": "Start and exercise the complete deployment",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:57:40Z",
+          "completed_at": "2026-10-17T01:58:20Z"
+        },
+        {
+          "name": "Collect deployment logs and stop its disposable resources",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:58:20Z",
+          "completed_at": "2026-10-17T01:58:23Z"
+        },
+        {
+          "name": "Run actions/upload-artifact@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:58:23Z",
+          "completed_at": "2026-10-17T01:58:24Z"
+        },
+        {
+          "name": "Post Run actions/setup-python@v5",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:58:24Z",
+          "completed_at": "2026-10-17T01:58:24Z"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:58:24Z",
+          "completed_at": "2026-10-17T01:58:26Z"
+        },
+        {
+          "name": "Post Run actions/setup-java@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:58:26Z",
+          "completed_at": "2026-10-17T01:58:28Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:58:28Z",
+          "completed_at": "2026-10-17T01:58:28Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-10-17T01:58:28Z",
+          "completed_at": "2026-10-17T01:58:28Z"
+        }
+      ]
+    }
+  ]
+}

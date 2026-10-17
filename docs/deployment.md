@@ -85,7 +85,7 @@ docker compose exec -T postgres psql -U itms_admin -d itms_restore_check -c 'SEL
 
 ## 5. 本轮本机学习环境（WSL 依赖）
 
-2026-10-17本机Docker Desktop在最终构建时退出，重启停在通信文件错误，因此最后版本通过独立WSL依赖完成全量验证。原有Docker数据保留，最终镜像重建待Docker恢复。下面是本机已准备环境的使用方式；其他机器按前面的Compose方式启动，或自行准备同版本依赖。
+2026-10-17本机Docker Desktop在最终构建时退出，重启停在通信文件错误，因此最后版本通过独立WSL依赖完成全量验证。原有Docker数据保留；最终镜像重建与完整Compose验收已在[GitHub Actions](https://github.com/griffith1st/big-data-based-intelligent-traffic-management-system/actions/runs/38992566331)通过。下面是本机已准备环境的使用方式；其他机器按前面的Compose方式启动，或自行准备同版本依赖。
 
 | 组件 | 本机位置/参数 |
 | --- | --- |

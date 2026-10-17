@@ -38,7 +38,11 @@
 
 较早版本的Compose镜像曾实际构建并启动，页面已有浏览器操作证据。最终代码的镜像重建时，本机Docker Desktop退出，重启停在`sailor-ingest.sock`通信文件错误；并发运行的测试JVM同时发生过本地内存分配失败。随后限制JVM/Node内存、顺序执行，并使用上述WSL依赖取得本报告的完整通过结果。
 
-因此，本报告确认最终源代码的测试、构建和原生服务运行，不确认最终Docker镜像重建成功。Docker数据保留。GitHub工作流随提交新增，远程执行状态以Actions为准；本地通过不等于远程CI通过。
+随后在独立GitHub Actions环境补齐最终版本的验证：[运行38992566331](https://github.com/griffith1st/big-data-based-intelligent-traffic-management-system/actions/runs/38992566331)已经完整通过，源代码提交为`2ba31664af4ffd7487079bc4bb3ba2b14c383abd`。[github-actions.json](github-actions.json)保存GitHub API返回的提交、结论与各步骤状态。
+
+远程实际完成：隔离组件全量回归、Java17/Node22构建、顺序构建最终后端/前端Docker镜像、六服务Compose健康启动、经Nginx访问SPA和API、登录、eventId重放/冲突、生成56条并等待落库、驾驶员权限及退出撤销。另在数据库确认至少56条消费回执，证明生成批次走过Kafka消费事务。部署日志和测试报告作为Actions的verification-evidence附件保存。没有发布外部网站；测试结束清理该临时部署。
+
+本机Docker Desktop启动故障仍独立存在，原有数据保留；本机学习入口继续使用WSL原生依赖。最终Docker镜像及Compose链路已经由上述远程运行验证。
 
 ## 验证边界
 
