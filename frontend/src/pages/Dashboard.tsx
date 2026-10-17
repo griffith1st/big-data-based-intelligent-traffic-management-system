@@ -1,46 +1,26 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Card, Col, Empty, Row, Spin, Statistic, Table, Tag } from 'antd';
+import React from 'react';
+import { Card, Col, Empty, Row, Statistic, Table, Tag } from 'antd';
 import { CarOutlined, ClockCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import ReactEChartsCore from 'echarts-for-react';
 import { alertApi, predictionApi, trafficApi } from '../services/api';
+import { useResource } from '../services/useResource';
+import ResourceStatus from '../components/ResourceStatus';
+import { useAuth } from '../services/AuthContext';
+import { canManageTraffic } from '../services/session';
 
 const levelLabels = ['畅通', '轻度拥堵', '中度拥堵', '严重拥堵'];
 const levelColors = ['#2fb344', '#fadb14', '#fa8c16', '#ff4d4f'];
 
 const Dashboard: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [realtimeData, setRealtimeData] = useState<any[]>([]);
-  const [heatmapData, setHeatmapData] = useState<any[]>([]);
-  const [predictions, setPredictions] = useState<any[]>([]);
-  const [alertCount, setAlertCount] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval>>();
-
-  const fetchData = async () => {
-    try {
-      const [realtimeRes, heatmapRes, predRes, alertRes] = await Promise.all([
-        trafficApi.getRealTime(),
-        trafficApi.getHeatmap(),
-        predictionApi.getOverview(),
-        alertApi.getUnreadCount(),
-      ]);
-      if (realtimeRes.code === 200) setRealtimeData(realtimeRes.data || []);
-      if (heatmapRes.code === 200) setHeatmapData(heatmapRes.data || []);
-      if (predRes.code === 200) setPredictions(predRes.data || []);
-      if (alertRes.code === 200) setAlertCount(alertRes.data || 0);
-    } catch (error) {
-      console.error('获取数据失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-    intervalRef.current = setInterval(fetchData, 5000);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, []);
+  const { user } = useAuth();
+  const realtime = useResource(signal => trafficApi.getRealTime(signal).then(r => r.data || []), [], 5000);
+  const heatmap = useResource(signal => trafficApi.getHeatmap(signal).then(r => r.data || []), [], 5000);
+  const prediction = useResource(signal => predictionApi.getOverview(signal).then(r => r.data || []), [], 15000);
+  const alerts = useResource(signal => canManageTraffic(user?.role) ? alertApi.getUnreadCount(signal).then(r => r.data) : Promise.resolve(null), [user?.role], 10000);
+  const realtimeData = realtime.data || [];
+  const heatmapData = heatmap.data || [];
+  const predictions = prediction.data || [];
+  const alertCount = alerts.data ?? 0;
 
   const lngs = heatmapData.map((item) => item.longitude);
   const lats = heatmapData.map((item) => item.latitude);
@@ -67,7 +47,7 @@ const Dashboard: React.FC = () => {
           平均速度: ${Number(data.averageSpeed || 0).toFixed(1)} km/h<br/>
           最严重拥堵: ${levelLabels[data.worstCongestionLevelValue] || data.worstCongestionLevel}<br/>
           ${details}<br/>
-          时间: ${data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '-'}${concern}`;
+          时间: ${data.timestamp ? new Date(data.timestamp).toLocaleString() : '-'}${concern}`;
       },
     },
     legend: {
@@ -155,7 +135,7 @@ const Dashboard: React.FC = () => {
     xAxis: { type: 'category' as const, data: predictions.map((item) => item.intersectionName || item.intersectionId) },
     yAxis: [{ type: 'value' as const, name: '预测流量(辆)' }, { type: 'value' as const, name: '预测速度(km/h)' }],
     series: [
-      { name: '预测流量', type: 'bar', data: predictions.map((item) => item.predictedVolume || item.predictedFlow), itemStyle: { color: '#fa8c16' } },
+      { name: '预测流量', type: 'bar', data: predictions.map((item) => item.predictedVolume ?? item.predictedFlow), itemStyle: { color: '#fa8c16' } },
       { name: '预测速度', type: 'line', yAxisIndex: 1, data: predictions.map((item) => item.predictedSpeed), itemStyle: { color: '#1677ff' } },
     ],
   };
@@ -170,7 +150,7 @@ const Dashboard: React.FC = () => {
     },
     { title: '方向', dataIndex: 'direction', key: 'direction' },
     { title: '数据来源', dataIndex: 'dataSource', key: 'dataSource' },
-    { title: '记录时间', dataIndex: 'recordTime', key: 'recordTime', render: (val: string) => val ? new Date(val).toLocaleTimeString() : '' },
+    { title: '记录时间', dataIndex: 'recordTime', key: 'recordTime', render: (val: string) => val ? new Date(val).toLocaleString() : '' },
   ];
 
   const totalVehicles = heatmapData.reduce((sum, item) => sum + (item.totalVehicleCount || 0), 0);
@@ -179,27 +159,25 @@ const Dashboard: React.FC = () => {
     : 0;
   const congestedCount = heatmapData.filter((item) => (item.worstCongestionLevelValue || 0) >= 2).length;
 
-  if (loading) {
-    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}><Spin size="large" tip="正在加载数据..." /></div>;
-  }
-
   return (
     <div>
+      <ResourceStatus title="路口汇总" resource={heatmap} />
+      {canManageTraffic(user?.role) && <ResourceStatus title="未读告警" resource={alerts} />}
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={6}><Card hoverable><Statistic title="实时车流量" value={totalVehicles} prefix={<CarOutlined />} suffix="辆" valueStyle={{ color: '#1677ff' }} /></Card></Col>
-        <Col xs={24} sm={12} lg={6}><Card hoverable><Statistic title="平均速度" value={avgSpeedAll} prefix={<ClockCircleOutlined />} suffix="km/h" valueStyle={{ color: '#52c41a' }} /></Card></Col>
-        <Col xs={24} sm={12} lg={6}><Card hoverable><Statistic title="拥堵路口" value={congestedCount} prefix={<WarningOutlined />} suffix="个" valueStyle={{ color: congestedCount > 0 ? '#ff4d4f' : '#52c41a' }} /></Card></Col>
-        <Col xs={24} sm={12} lg={6}><Card hoverable><Statistic title="未处理告警" value={alertCount} prefix={<WarningOutlined />} valueStyle={{ color: alertCount > 0 ? '#ff4d4f' : '#52c41a' }} /></Card></Col>
+        <Col xs={24} sm={12} lg={6}><Card hoverable><Statistic title="实时车流量" value={heatmap.updatedAt ? totalVehicles : '—'} prefix={<CarOutlined />} suffix="辆" valueStyle={{ color: '#1677ff' }} /></Card></Col>
+        <Col xs={24} sm={12} lg={6}><Card hoverable><Statistic title="平均速度" value={heatmap.updatedAt ? avgSpeedAll : '—'} prefix={<ClockCircleOutlined />} suffix="km/h" valueStyle={{ color: '#52c41a' }} /></Card></Col>
+        <Col xs={24} sm={12} lg={6}><Card hoverable><Statistic title="拥堵路口" value={heatmap.updatedAt ? congestedCount : '—'} prefix={<WarningOutlined />} suffix="个" valueStyle={{ color: congestedCount > 0 ? '#ff4d4f' : '#52c41a' }} /></Card></Col>
+        <Col xs={24} sm={12} lg={6}><Card hoverable><Statistic title={canManageTraffic(user?.role) ? "未读告警" : "数据路口"} value={canManageTraffic(user?.role) ? (alerts.updatedAt ? alertCount : "—") : heatmapData.length} prefix={<WarningOutlined />} valueStyle={{ color: alertCount > 0 ? '#ff4d4f' : '#52c41a' }} /></Card></Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={16}>
-          <Card title="路口拥堵热力图" bodyStyle={{ padding: 12 }}>
-            <ReactEChartsCore option={heatmapOption} notMerge style={{ height: 390 }} />
+          <Card title="路口拥堵热力图" styles={{ body: { padding: 12 } }}>
+            <>{heatmapData.length ? <ReactEChartsCore option={heatmapOption} notMerge style={{ height: 390 }} /> : <Empty description="暂无路口数据" />}</>
           </Card>
         </Col>
         <Col xs={24} lg={8}>
-          <Card title="Top 5 拥堵路口" bodyStyle={{ padding: 12 }}>
+          <Card title="Top 5 拥堵路口" styles={{ body: { padding: 12 } }}>
             {topCongested.map((item) => (
               <div key={item.intersectionId} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                 <span>{item.intersectionName}</span>
@@ -211,18 +189,20 @@ const Dashboard: React.FC = () => {
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={12}><Card title="各路口车流量与速度" bodyStyle={{ padding: 12 }}><ReactEChartsCore option={trafficTrendOption} notMerge style={{ height: 350 }} /></Card></Col>
+        <Col xs={24} lg={12}><Card title="各路口车流量与速度" styles={{ body: { padding: 12 } }}><ReactEChartsCore option={trafficTrendOption} notMerge style={{ height: 350 }} /></Card></Col>
         <Col xs={24} lg={12}>
-          <Card title="LSTM 流量预测概览" bodyStyle={{ padding: 12 }}>
-            {predictions.length ? <ReactEChartsCore option={predictionOption} notMerge style={{ height: 350 }} /> : <Empty description="暂无预测数据，请先触发预测" style={{ height: 350, paddingTop: 100 }} />}
+          <Card title="模拟流量预测概览" styles={{ body: { padding: 12 } }}>
+            <ResourceStatus title="模拟预测" resource={prediction} />
+            {predictions.length ? <ReactEChartsCore option={predictionOption} notMerge style={{ height: 350 }} /> : <Empty description="暂无预测批次，交通管理员可在预测分析页生成" style={{ height: 350, paddingTop: 100 }} />}
           </Card>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24}>
-          <Card title="实时交通数据" bodyStyle={{ padding: 0 }}>
-            <Table columns={columns} dataSource={realtimeData.slice(0, 12)} rowKey={(row: any) => row.id || `${row.intersectionId}-${row.direction}-${row.recordTime}`} size="small" pagination={false} scroll={{ y: 300 }} />
+          <Card title="实时交通数据" styles={{ body: { padding: 0 } }}>
+            <ResourceStatus title="实时明细" resource={realtime} />
+            <Table loading={realtime.loading && !realtime.updatedAt} columns={columns} dataSource={realtimeData.slice(0, 12)} rowKey={(row: any) => row.id || `${row.intersectionId}-${row.direction}-${row.recordTime}`} size="small" pagination={false} scroll={{ y: 300 }} />
           </Card>
         </Col>
       </Row>

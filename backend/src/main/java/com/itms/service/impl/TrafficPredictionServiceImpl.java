@@ -1,7 +1,6 @@
 package com.itms.service.impl;
 
 import com.itms.common.TrafficNetwork;
-import com.itms.entity.TrafficAlert;
 import com.itms.entity.TrafficData;
 import com.itms.entity.TrafficPrediction;
 import com.itms.repository.TrafficDataRepository;
@@ -16,7 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.util.UUID;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,15 +35,12 @@ public class TrafficPredictionServiceImpl implements TrafficPredictionService {
     private final Random random = new Random();
 
     @Value("${itms.traffic.prediction-window:30}")
-    private int predictionWindow;
+    private int predictionWindow = 30;
 
     @Override
     public List<TrafficPrediction> getPredictions(String intersectionId) {
+        TrafficValidation.requireIntersection(intersectionId);
         String latestBatch = latestBatchId();
-        if (latestBatch == null) {
-            triggerPrediction();
-            latestBatch = latestBatchId();
-        }
         if (latestBatch == null) {
             return List.of();
         }
@@ -67,16 +63,10 @@ public class TrafficPredictionServiceImpl implements TrafficPredictionService {
     @Transactional
     public Map<String, Object> triggerPrediction() {
         LocalDateTime generatedAt = LocalDateTime.now();
-        String batchId = generatedAt.format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS"));
-        List<TrafficData> latestData;
-        try {
-            latestData = trafficDataRepository.findLatestTrafficData();
-        } catch (Exception ex) {
-            log.warn("Failed to load latest traffic data, falling back to simulated prediction input", ex);
-            latestData = List.of();
-        }
+        String batchId = UUID.randomUUID().toString();
+        List<TrafficData> latestData = trafficDataRepository.findLatestTrafficData();
         if (latestData.isEmpty()) {
-            log.warn("No latest traffic data available, generating LSTM fallback predictions from traffic network baseline");
+            log.warn("No latest traffic data available, generating SIMULATION baseline predictions from traffic network baseline");
             latestData = seedFromNetwork();
         }
 
@@ -112,36 +102,24 @@ public class TrafficPredictionServiceImpl implements TrafficPredictionService {
                         .predictedVolume(predictedFlow)
                         .predictedSpeed(Math.round(predictedSpeed * 10.0) / 10.0)
                         .predictedCongestion(congestion)
-                        .confidence(Math.round((0.88 + random.nextDouble() * 0.1) * 1000.0) / 1000.0)
-                        .modelVersion("LSTM-v1.0")
+                        .confidence(null)
+                        .modelVersion("SIMULATION-v1")
                         .build();
                 saved.add(predictionRepository.save(prediction));
             }
         }
 
-        try {
-            predictionRepository.deleteByPredictionTimeBefore(LocalDateTime.now().minusDays(2));
-        } catch (Exception ex) {
-            log.warn("Failed to clear old LSTM prediction records, returning current batch {}", batchId, ex);
-        }
-        try {
-            systemLogService.log("OPERATION", "交通预测分析", "触发 LSTM 预测 batchId=" + batchId, "SUCCESS");
-        } catch (Exception ex) {
-            log.warn("Failed to write LSTM prediction system log for batch {}", batchId, ex);
-        }
-        log.info("Generated LSTM prediction batch {} with {} rows", batchId, saved.size());
-
+        predictionRepository.deleteByPredictionTimeBefore(LocalDateTime.now().minusDays(2));
+        createPredictionAlerts(saved);
+        systemLogService.log("OPERATION", "交通预测分析", "生成模拟预测 batchId=" + batchId, "SUCCESS");
+        log.info("Generated simulation prediction batch {} with {} rows", batchId, saved.size());
         Map<String, Object> response = buildBatchResponse(batchId, generatedAt, saved);
-        try {
-            createPredictionAlerts(saved);
-        } catch (Exception ex) {
-            log.warn("Failed to create prediction alerts for batch {}, keeping prediction response available", batchId, ex);
-        }
         return response;
     }
 
     @Override
     public Map<String, Object> getLatestPredictionBatch(String intersectionId) {
+        if (intersectionId != null && !intersectionId.isBlank()) TrafficValidation.requireIntersection(intersectionId);
         String latestBatch = latestBatchId();
         if (latestBatch == null) {
             return buildBatchResponse(null, LocalDateTime.now(), List.of());
@@ -172,7 +150,7 @@ public class TrafficPredictionServiceImpl implements TrafficPredictionService {
     }
 
     private String latestBatchId() {
-        TrafficPrediction latest = predictionRepository.findTopByOrderByCreatedAtDesc();
+        TrafficPrediction latest = predictionRepository.findTopByOrderByCreatedAtDescIdDesc();
         return latest == null ? null : latest.getPredictionBatchId();
     }
 
@@ -188,7 +166,10 @@ public class TrafficPredictionServiceImpl implements TrafficPredictionService {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("batchId", batchId);
         response.put("generatedAt", generatedAt);
-        response.put("modelVersion", "LSTM-v1.0");
+        response.put("modelVersion", "SIMULATION-v1");
+        response.put("algorithm", "TREND_SIMULATION");
+        response.put("mode", "SIMULATION");
+        response.put("description", "Trend and Gaussian noise simulation; not a trained model or measured accuracy");
         response.put("items", rows.stream().map(this::toMap).toList());
         response.put("overview", overviewFrom(rows));
         response.put("risks", rows.stream()
@@ -237,9 +218,8 @@ public class TrafficPredictionServiceImpl implements TrafficPredictionService {
     private void createPredictionAlerts(List<TrafficPrediction> rows) {
         Map<String, TrafficPrediction> riskByIntersection = new LinkedHashMap<>();
         for (TrafficPrediction prediction : rows) {
-            if (prediction.getPredictedCongestion() != null && prediction.getPredictedCongestion() >= 2) {
-                riskByIntersection.putIfAbsent(prediction.getIntersectionId(), prediction);
-            }
+            riskByIntersection.merge(prediction.getIntersectionId(), prediction, (a, b) ->
+                    a.getPredictedCongestion() >= b.getPredictedCongestion() ? a : b);
         }
         for (TrafficPrediction pred : riskByIntersection.values()) {
             TrafficNetwork.Intersection intersection = TrafficNetwork.intersection(pred.getIntersectionId());
@@ -249,9 +229,11 @@ public class TrafficPredictionServiceImpl implements TrafficPredictionService {
                     .longitude(intersection == null ? null : intersection.longitude())
                     .latitude(intersection == null ? null : intersection.latitude())
                     .direction("PREDICTED")
+                    .dataSource("PREDICTION")
+                    .recordTime(LocalDateTime.now())
                     .vehicleCount(pred.getPredictedVolume())
                     .avgSpeed(pred.getPredictedSpeed())
-                    .congestionLevel(pred.getPredictedCongestion())
+                    .congestionLevel(pred.getPredictedCongestion() >= 2 ? pred.getPredictedCongestion() : 0)
                     .build();
             alertService.upsertCongestionAlert(alertData);
         }

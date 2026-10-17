@@ -1,6 +1,7 @@
 package com.itms.service;
 
 import com.itms.entity.SystemLog;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 import java.util.Map;
@@ -18,4 +19,6 @@ public interface SystemLogService {
     List<SystemLog> getLogsByUser(Long userId);
 
     Map<String, Object> getSummary();
+
+    Page<SystemLog> search(String logType, Long userId, int page, int size);
 }

@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Card, Row, Col, Table, Tag, Button, Space, Spin, message, Select, Statistic, Descriptions } from 'antd';
+import React, { useMemo, useState } from 'react';
+import { Alert, Card, Row, Col, Table, Tag, Button, Space, Empty, message, Select, Statistic, Descriptions } from 'antd';
 import { ThunderboltOutlined, CheckCircleOutlined, SyncOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import ReactEChartsCore from 'echarts-for-react';
 import { signalApi } from '../services/api';
+import { useResource } from '../services/useResource';
+import ResourceStatus from '../components/ResourceStatus';
 
 const STRATEGIES: Record<string, { label: string; color: string }> = {
   BALANCED: { label: '均衡策略', color: 'blue' },
@@ -18,81 +20,35 @@ const directionLabel: Record<string, string> = {
 };
 
 const SignalControl: React.FC = () => {
-  const [loading, setLoading] = useState(true);
+  const nodes = useResource(signal => signalApi.getIntersections(signal).then(r => r.data || []));
+  const intersections = nodes.data || [];
+  const [selection, setSelection] = useState<string>();
+  const selectedIntersection = selection || intersections[0]?.intersectionId || '';
+  const current = useResource(signal => selectedIntersection ? signalApi.getCurrent(selectedIntersection, signal).then(r => r.data) : Promise.resolve(null), [selectedIntersection]);
+  const signals: any[] = current.data?.signals || [];
+  const directionStates: any[] = current.data?.directionStates || [];
   const [optimizing, setOptimizing] = useState(false);
-  const [intersections, setIntersections] = useState<any[]>([]);
-  const [signals, setSignals] = useState<any[]>([]);
-  const [directionStates, setDirectionStates] = useState<any[]>([]);
-  const [selectedIntersection, setSelectedIntersection] = useState<string>('');
+  const [applying, setApplying] = useState(false);
   const [strategy, setStrategy] = useState('BALANCED');
   const [optimizationResult, setOptimizationResult] = useState<any>(null);
-
-  const fetchBase = async () => {
-    try {
-      const res = await signalApi.getIntersections();
-      const nodes = res.code === 200 ? res.data || [] : [];
-      setIntersections(nodes);
-      const target = selectedIntersection || nodes[0]?.intersectionId;
-      if (!selectedIntersection && target) setSelectedIntersection(target);
-      if (target) await fetchCurrent(target);
-    } catch (error) {
-      console.error('获取信号灯数据失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchCurrent = async (intersectionId: string) => {
-    const res = await signalApi.getCurrent(intersectionId);
-    if (res.code === 200) {
-      setSignals(res.data?.signals || []);
-      setDirectionStates(res.data?.directionStates || []);
-    }
-  };
-
-  useEffect(() => { fetchBase(); }, []);
-
-  useEffect(() => {
-    if (selectedIntersection) {
-      fetchCurrent(selectedIntersection);
-      setOptimizationResult(null);
-    }
-  }, [selectedIntersection]);
-
+  const candidateSignals: any[] = current.data?.candidateSignals || [];
   const handleOptimize = async () => {
-    if (!selectedIntersection) {
-      message.warning('请先选择路口');
-      return;
-    }
+    if (!selectedIntersection) return;
     setOptimizing(true);
     try {
       const res = await signalApi.optimize(selectedIntersection, strategy);
-      if (res.code === 200) {
-        setOptimizationResult(res.data);
-        setSignals(res.data?.signals || []);
-        setDirectionStates(res.data?.directionStates || []);
-        message.success('DQN 信号灯优化完成');
-      } else {
-        message.error(res.message || '优化失败');
-      }
-    } catch (error) {
-      message.error('优化请求失败');
-    } finally {
-      setOptimizing(false);
-    }
+      setOptimizationResult(res.data);
+      message.success('规则配时已生成候选方案，应用后更新模拟状态');
+      current.reload();
+    } catch (error: any) { message.error(error.message || '优化失败'); }
+    finally { setOptimizing(false); }
   };
-
   const handleApply = async () => {
-    if (!selectedIntersection) return;
-    try {
-      const res = await signalApi.applyPlan(selectedIntersection);
-      if (res.code === 200) {
-        message.success('信号灯方案已应用');
-        fetchCurrent(selectedIntersection);
-      }
-    } catch (error) {
-      message.error('应用请求失败');
-    }
+    if (!selectedIntersection || !candidateSignals.length) return;
+    setApplying(true);
+    try { await signalApi.applyPlan(selectedIntersection); message.success('候选配时已应用到模拟状态'); setOptimizationResult(null); current.reload(); }
+    catch (error: any) { message.error(error.message || '应用失败'); }
+    finally { setApplying(false); }
   };
 
   const signalGanttOption = {
@@ -143,6 +99,8 @@ const SignalControl: React.FC = () => {
 
   const stateColumns = [
     { title: '方向', dataIndex: 'direction', key: 'direction', render: (v: string) => directionLabel[v] || v },
+    { title: '输入来源', dataIndex: 'observed', key: 'observed', render: (observed: boolean) => <Tag color={observed ? 'blue' : 'default'}>{observed ? '近期采样' : '静态估算'}</Tag> },
+    { title: '采样时间', dataIndex: 'recordTime', key: 'recordTime', render: (value: string) => value ? new Date(value).toLocaleString() : '—' },
     { title: '车流量', dataIndex: 'vehicleCount', key: 'vehicleCount' },
     { title: '平均速度', dataIndex: 'averageSpeed', key: 'averageSpeed', render: (v: number) => `${v?.toFixed?.(1) || v} km/h` },
     { title: '排队长度', dataIndex: 'queueLength', key: 'queueLength' },
@@ -164,31 +122,35 @@ const SignalControl: React.FC = () => {
   const optimizedCount = signals.filter((s: any) => s.optimizationStatus === 'OPTIMIZED' || s.optimizationStatus === 'APPLIED').length;
   const avgCycle = signals.length ? signals.reduce((sum, item) => sum + (item.cycleDuration || 0), 0) / signals.length : 0;
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
 
   return (
     <div>
+      <Alert type="info" showIcon message="规则配时模拟" description="根据流量、排队与等待情况计算候选配时；应用仅更新系统中的模拟方案，尚未接入真实信号控制设备。下图展示各灯色时长占比，不表示道路相位的实际时间轴。" style={{ marginBottom: 16 }} />
+      <ResourceStatus title="路口列表" resource={nodes} />
+      <ResourceStatus title="当前配时" resource={current} />
+      {current.data?.planValid === false && <Alert type="warning" showIcon message="当前历史配时需要重新计算" description={current.data.validationMessage || '请计算并应用新的候选方案。'} style={{ marginBottom: 16 }} />}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}><Card><Statistic title="路口总数" value={intersections.length} prefix={<ClockCircleOutlined />} /></Card></Col>
         <Col xs={24} sm={12} lg={6}><Card><Statistic title="当前路口已优化方向" value={optimizedCount} suffix={`/ ${signals.length}`} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#52c41a' }} /></Card></Col>
-        <Col xs={24} sm={12} lg={6}><Card><Statistic title="预计等待降低" value={optimizationResult?.improvementRate ?? 0} suffix="%" prefix={<SyncOutlined />} /></Card></Col>
+        <Col xs={24} sm={12} lg={6}><Card><Statistic title="规则估算等待改善（未实测）" value={optimizationResult?.improvementRate ?? "—"} suffix="%" prefix={<SyncOutlined />} /></Card></Col>
         <Col xs={24} sm={12} lg={6}><Card><Statistic title="平均周期时长" value={avgCycle.toFixed(0)} suffix="s" /></Card></Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={12}>
-          <Card title="信号灯配时甘特图" bodyStyle={{ padding: 12 }}>
-            <ReactEChartsCore option={signalGanttOption} notMerge style={{ height: 350 }} />
+          <Card title="当前方案各灯色时长分布" styles={{ body: { padding: 12 } }}>
+            {signals.length ? <ReactEChartsCore option={signalGanttOption} notMerge style={{ height: 350 }} /> : <Empty description="暂无当前配时" />}
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card title="DQN 优化控制台" bodyStyle={{ padding: 24 }}>
+          <Card title="规则配时控制台" styles={{ body: { padding: 24 } }}>
             <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
               <Descriptions.Item label="当前路口">
                 <Select
                   style={{ width: 280 }}
                   value={selectedIntersection}
-                  onChange={setSelectedIntersection}
+                  disabled={optimizing || applying}
+                  onChange={value => { setSelection(value); setOptimizationResult(null); }}
                   options={intersections.map((item: any) => ({ label: `${item.intersectionId}: ${item.intersectionName}`, value: item.intersectionId }))}
                 />
               </Descriptions.Item>
@@ -197,15 +159,16 @@ const SignalControl: React.FC = () => {
                   style={{ width: 220 }}
                   value={strategy}
                   onChange={setStrategy}
-                  options={Object.entries(STRATEGIES).map(([value, item]) => ({ value, label: item.label }))}
+                  disabled={optimizing || applying}
+                  options={Object.entries(STRATEGIES).map(([value, item]) => ({ value, label: value === 'EMERGENCY_FIRST' ? '应急优先（待接入应急数据）' : item.label, disabled: value === 'EMERGENCY_FIRST' }))}
                 />
               </Descriptions.Item>
               <Descriptions.Item label="路口名称">{selectedName}</Descriptions.Item>
               <Descriptions.Item label="相位联动"><Tag color="green">NS_PHASE</Tag><Tag color="orange">EW_PHASE</Tag></Descriptions.Item>
             </Descriptions>
             <Space>
-              <Button type="primary" icon={<ThunderboltOutlined />} loading={optimizing} onClick={handleOptimize}>DQN 优化配时</Button>
-              <Button icon={<CheckCircleOutlined />} onClick={handleApply}>应用方案</Button>
+              <Button type="primary" icon={<ThunderboltOutlined />} loading={optimizing} disabled={!selectedIntersection || applying || current.loading} onClick={handleOptimize}>计算候选配时</Button>
+              <Button icon={<CheckCircleOutlined />} loading={applying} disabled={!candidateSignals.length || optimizing || current.loading} onClick={handleApply}>应用候选方案</Button>
             </Space>
             {optimizationResult?.explanation && (
               <Alert type="success" showIcon style={{ marginTop: 16 }} message={optimizationResult.explanation} />
@@ -214,14 +177,15 @@ const SignalControl: React.FC = () => {
         </Col>
       </Row>
 
+      <Card title="待应用候选配时" style={{ marginTop: 16 }}><Table columns={signalColumns} dataSource={candidateSignals} rowKey="direction" size="small" pagination={false} locale={{ emptyText: "尚无候选方案，请先计算候选配时" }} /></Card>
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={12}>
-          <Card title="方向交通状态" bodyStyle={{ padding: 0 }}>
-            <Table columns={stateColumns} dataSource={directionStates} rowKey="direction" size="small" pagination={false} />
+          <Card title="方向计算输入（缺失时使用静态估算）" styles={{ body: { padding: 0 } }}>
+            <Table columns={stateColumns} dataSource={directionStates} rowKey="direction" size="small" pagination={false} scroll={{ x: 750 }} />
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card title="信号灯配时详情" bodyStyle={{ padding: 0 }}>
+          <Card title="信号灯配时详情" styles={{ body: { padding: 0 } }}>
             <Table columns={signalColumns} dataSource={signals} rowKey={(row: any) => row.id || `${row.intersectionId}-${row.direction}`} size="small" pagination={false} />
           </Card>
         </Col>

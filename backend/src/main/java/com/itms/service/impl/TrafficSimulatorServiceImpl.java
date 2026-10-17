@@ -18,10 +18,10 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -96,8 +96,10 @@ public class TrafficSimulatorServiceImpl implements TrafficSimulatorService {
             }
         }
 
+        boolean kafkaAvailableForBatch = true;
         for (TrafficData data : batch) {
-            publish(data);
+            if (kafkaAvailableForBatch) kafkaAvailableForBatch = publish(data);
+            else trafficDataService.saveTrafficData(data);
         }
         return batch;
     }
@@ -117,6 +119,7 @@ public class TrafficSimulatorServiceImpl implements TrafficSimulatorService {
         int congestion = TrafficDataServiceImpl.calculateCongestionLevel(next, speed);
 
         return TrafficData.builder()
+                .eventId(UUID.randomUUID().toString())
                 .intersectionId(intersection.intersectionId())
                 .intersectionName(intersection.intersectionName())
                 .longitude(intersection.longitude())
@@ -126,7 +129,7 @@ public class TrafficSimulatorServiceImpl implements TrafficSimulatorService {
                 .avgSpeed(Math.round(speed * 10.0) / 10.0)
                 .occupancyRate(Math.round(Math.min(98.0, Math.max(8.0, next / 13.0)) * 10.0) / 10.0)
                 .congestionLevel(congestion)
-                .dataSource("KAFKA")
+                .dataSource("SIMULATOR")
                 .recordTime(now)
                 .build();
     }
@@ -163,20 +166,37 @@ public class TrafficSimulatorServiceImpl implements TrafficSimulatorService {
         };
     }
 
-    private void publish(TrafficData data) {
+    /** False means synchronous producer failure; this batch should use direct persistence. */
+    private boolean publish(TrafficData data) {
+        final String payload;
         try {
-            kafkaTemplate.send(topic, data.getIntersectionId() + ":" + data.getDirection(), objectMapper.writeValueAsString(data))
-                    .exceptionally(ex -> {
-                        log.warn("Kafka publish failed, saving traffic data directly: {}", ex.getMessage());
-                        trafficDataService.saveTrafficData(data);
-                        return null;
-                    });
+            payload = objectMapper.writeValueAsString(data);
         } catch (JsonProcessingException ex) {
-            Map<String, Object> minimal = new LinkedHashMap<>();
-            minimal.put("intersectionId", data.getIntersectionId());
-            minimal.put("direction", data.getDirection());
-            log.warn("Traffic data serialization failed: {}", minimal, ex);
+            log.warn("Traffic serialization failed; persisting event {} directly", data.getEventId(), ex);
             trafficDataService.saveTrafficData(data);
+            return false;
+        }
+        try {
+            kafkaTemplate.send(topic, data.getIntersectionId() + ":" + data.getDirection(), payload)
+                    .whenComplete((result, error) -> {
+                        if (error == null) return;
+                        log.warn("Kafka acknowledgement failed; persisting event {} directly", data.getEventId(), error);
+                        try {
+                            trafficDataService.saveTrafficData(data);
+                        } catch (RuntimeException persistenceFailure) {
+                            // There is no durable fallback queue. Preserve actionable evidence
+                            // instead of silently dropping a failed completion callback.
+                            log.error("Traffic event {} failed in Kafka and database fallback; replay payload={}",
+                                    data.getEventId(), payload, persistenceFailure);
+                        }
+                    });
+            return true;
+        } catch (RuntimeException ex) {
+            log.warn("Kafka send failed synchronously; persisting event {} and the rest of this batch directly",
+                    data.getEventId(), ex);
+            // If PostgreSQL fails too, propagate to the manual caller / scheduler.
+            trafficDataService.saveTrafficData(data);
+            return false;
         }
     }
 }

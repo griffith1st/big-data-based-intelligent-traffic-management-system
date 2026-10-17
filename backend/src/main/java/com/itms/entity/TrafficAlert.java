@@ -57,6 +57,16 @@ public class TrafficAlert {
     @Column(nullable = false, length = 20)
     private String status;
 
+    /** Only active conditions own a unique key. Resolution clears it. */
+    @Column(name = "active_key", unique = true, length = 160)
+    private String activeKey;
+    @Column(length = 20)
+    private String direction;
+    @Column(length = 20)
+    private String source;
+    @Column(name = "last_seen_at")
+    private LocalDateTime lastSeenAt;
+
     /** 处理人 */
     @Column(name = "handler", length = 50)
     private String handler;

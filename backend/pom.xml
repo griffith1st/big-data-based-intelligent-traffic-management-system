@@ -20,6 +20,7 @@
     <properties>
         <java.version>17</java.version>
         <itms.build.directory>target</itms.build.directory>
+        <itms.test.jvm.args>-Xms128m -Xmx768m -XX:MaxMetaspaceSize=384m -XX:ActiveProcessorCount=4</itms.test.jvm.args>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.compiler.encoding>UTF-8</maven.compiler.encoding>
@@ -146,6 +147,12 @@
         </resources>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.1.2</version>
+                <configuration><argLine>${itms.test.jvm.args}</argLine></configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
@@ -169,6 +176,7 @@
                         <artifactId>maven-failsafe-plugin</artifactId>
                         <version>3.1.2</version>
                         <configuration>
+                            <argLine>${itms.test.jvm.args}</argLine>
                             <includes><include>**/RedisApplicationIT.java</include></includes>
                         </configuration>
                         <executions>
@@ -188,6 +196,7 @@
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-failsafe-plugin</artifactId>
                         <version>3.1.2</version>
+                        <configuration><argLine>${itms.test.jvm.args}</argLine></configuration>
                         <executions>
                             <execution>
                                 <goals><goal>integration-test</goal><goal>verify</goal></goals>

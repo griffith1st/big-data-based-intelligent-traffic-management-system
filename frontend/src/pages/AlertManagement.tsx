@@ -1,8 +1,11 @@
-﻿import React, { useEffect, useState } from 'react';
-import { Card, Table, Tag, Button, Space, Spin, message, Row, Col, Statistic, Select, Modal, Descriptions } from 'antd';
+import React, { useState } from 'react';
+import { Card, Table, Tag, Button, Space, message, Row, Col, Statistic, Select, Modal, Descriptions } from 'antd';
 import { WarningOutlined, InfoCircleOutlined, ExclamationCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import ReactEChartsCore from 'echarts-for-react';
 import { alertApi } from '../services/api';
+import { useResource } from '../services/useResource';
+import ResourceStatus from '../components/ResourceStatus';
+import { useAuth } from '../services/AuthContext';
 
 const levelConfig: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   INFO: { label: '信息', color: 'blue', icon: <InfoCircleOutlined /> },
@@ -24,34 +27,22 @@ const typeLabels: Record<string, string> = {
 };
 
 const AlertManagement: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [alertList, setAlertList] = useState<any[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [statistics, setStatistics] = useState<any>({});
+  const { user } = useAuth();
+  const list = useResource(signal => alertApi.getList(signal).then(r => r.data || []));
+  const stats = useResource(signal => alertApi.getStatistics(signal).then(r => r.data));
+  const alertList = list.data || [];
+  const statistics = stats.data || {};
+  const unreadCount = statistics.unreadCount ?? 0;
+  const activeCount = Object.values(statistics.activeByLevel || {}).reduce((sum: number, count: any) => sum + Number(count), 0);
+  const [busyId, setBusyId] = useState<number>();
   const [detailVisible, setDetailVisible] = useState(false);
   const [currentAlert, setCurrentAlert] = useState<any>(null);
   const [filterLevel, setFilterLevel] = useState<string>('');
 
-  const fetchData = async () => {
-    try {
-      const [listRes, countRes, statsRes] = await Promise.all([
-        alertApi.getList(),
-        alertApi.getUnreadCount(),
-        alertApi.getStatistics(),
-      ]);
-      if (listRes.code === 200) setAlertList(listRes.data || []);
-      if (countRes.code === 200) setUnreadCount(countRes.data || 0);
-      if (statsRes.code === 200) setStatistics(statsRes.data || {});
-    } catch (error: any) {
-      message.error(error.message || '获取告警数据失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchData(); }, []);
+  const fetchData = () => { list.reload(); stats.reload(); };
 
   const handleMarkRead = async (id: number) => {
+    setBusyId(id);
     try {
       const res = await alertApi.markAsRead(id);
       if (res.code === 200) {
@@ -60,20 +51,20 @@ const AlertManagement: React.FC = () => {
       }
     } catch (error: any) {
       message.error(error.message || '操作失败');
-    }
+    } finally { setBusyId(undefined); }
   };
 
   const handleResolve = async (id: number) => {
+    setBusyId(id);
     try {
-      const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-      const res = await alertApi.resolve(id, userInfo.realName || userInfo.username || 'system');
+      const res = await alertApi.resolve(id, user?.username || '');
       if (res.code === 200) {
         message.success('告警已处理');
         fetchData();
       }
     } catch (error: any) {
       message.error(error.message || '操作失败');
-    }
+    } finally { setBusyId(undefined); }
   };
 
   const levelPieOption = {
@@ -92,16 +83,16 @@ const AlertManagement: React.FC = () => {
   };
 
   const trendBuckets = alertList.reduce((acc: Record<string, number>, alert: any) => {
-    const key = alert.createdAt ? new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
+    const key = alert.createdAt ? alert.createdAt.slice(0, 16).replace('T', ' ') : '未知时间';
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
 
   const trendOption = {
     tooltip: { trigger: 'axis' as const },
-    xAxis: { type: 'category' as const, data: Object.keys(trendBuckets) },
+    xAxis: { type: 'category' as const, data: Object.keys(trendBuckets).sort() },
     yAxis: { type: 'value' as const, name: '告警数量' },
-    series: [{ name: '告警趋势', type: 'line', smooth: true, data: Object.values(trendBuckets), areaStyle: { color: 'rgba(255,77,79,0.1)' }, lineStyle: { color: '#ff4d4f', width: 3 }, itemStyle: { color: '#ff4d4f' } }],
+    series: [{ name: '告警趋势', type: 'line', smooth: true, data: Object.keys(trendBuckets).sort().map(key => trendBuckets[key]), areaStyle: { color: 'rgba(255,77,79,0.1)' }, lineStyle: { color: '#ff4d4f', width: 3 }, itemStyle: { color: '#ff4d4f' } }],
   };
 
   const columns = [
@@ -118,6 +109,9 @@ const AlertManagement: React.FC = () => {
     { title: '标题', dataIndex: 'title', key: 'title', width: 180, ellipsis: true },
     { title: '内容', dataIndex: 'content', key: 'content', width: 250, ellipsis: true },
     { title: '路口', dataIndex: 'intersectionId', key: 'intersectionId', width: 100 },
+    { title: '来源', dataIndex: 'source', key: 'source', render: (value: string) => value === 'PREDICTION' ? '模拟预测' : value === 'REALTIME' ? '交通采样' : value || '人工/历史' },
+    { title: '方向', dataIndex: 'direction', key: 'direction' },
+    { title: '最近观测', dataIndex: 'lastSeenAt', key: 'lastSeenAt', render: (v: string) => v ? new Date(v).toLocaleString() : '—' },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 90,
       render: (status: string) => {
@@ -132,36 +126,38 @@ const AlertManagement: React.FC = () => {
       render: (_: any, record: any) => (
         <Space>
           <Button size="small" onClick={() => { setCurrentAlert(record); setDetailVisible(true); }}>详情</Button>
-          {record.status === 'UNREAD' && <Button size="small" type="primary" onClick={() => handleMarkRead(record.id)}>标记已读</Button>}
-          {record.status !== 'RESOLVED' && <Button size="small" type="primary" ghost onClick={() => handleResolve(record.id)}>处理</Button>}
+          {record.status === 'UNREAD' && <Button size="small" type="primary" disabled={busyId !== undefined} loading={busyId === record.id} onClick={() => handleMarkRead(record.id)}>标记已读</Button>}
+          {record.status !== 'RESOLVED' && <Button size="small" type="primary" ghost disabled={busyId !== undefined} loading={busyId === record.id} onClick={() => handleResolve(record.id)}>处理</Button>}
         </Space>
       ),
     },
   ];
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
 
   return (
     <div>
+      <ResourceStatus title="全量告警统计" resource={stats} />
+      <p>未读表示尚未查看；未处理包括未读与已读。标记已读不会结束告警，处理后进入已处理状态。</p>
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={6}><Card><Statistic title="未处理告警" value={unreadCount} prefix={<WarningOutlined />} valueStyle={{ color: unreadCount > 0 ? '#ff4d4f' : '#52c41a' }} /></Card></Col>
-        <Col xs={24} sm={12} lg={6}><Card><Statistic title="信息" value={statistics.INFO || 0} prefix={<InfoCircleOutlined />} valueStyle={{ color: '#1677ff' }} /></Card></Col>
+        <Col xs={24} sm={12} lg={6}><Card><Statistic title="未读告警" value={stats.updatedAt ? unreadCount : "—"} prefix={<WarningOutlined />} valueStyle={{ color: unreadCount > 0 ? '#ff4d4f' : '#52c41a' }} /></Card></Col>
+        <Col xs={24} sm={12} lg={6}><Card><Statistic title="未处理告警" value={stats.updatedAt ? Number(activeCount) : "—"} prefix={<InfoCircleOutlined />} valueStyle={{ color: '#1677ff' }} /></Card></Col>
         <Col xs={24} sm={12} lg={6}><Card><Statistic title="警告" value={statistics.WARNING || 0} prefix={<ExclamationCircleOutlined />} valueStyle={{ color: '#faad14' }} /></Card></Col>
         <Col xs={24} sm={12} lg={6}><Card><Statistic title="严重" value={statistics.CRITICAL || 0} prefix={<WarningOutlined />} valueStyle={{ color: '#ff4d4f' }} /></Card></Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={12}><Card title="告警等级分布" bodyStyle={{ padding: 12 }}><ReactEChartsCore option={levelPieOption} notMerge style={{ height: 300 }} /></Card></Col>
-        <Col xs={24} lg={12}><Card title="告警趋势" bodyStyle={{ padding: 12 }}><ReactEChartsCore option={trendOption} notMerge style={{ height: 300 }} /></Card></Col>
+        <Col xs={24} lg={12}><Card title="告警等级分布" styles={{ body: { padding: 12 } }}><ReactEChartsCore option={levelPieOption} notMerge style={{ height: 300 }} /></Card></Col>
+        <Col xs={24} lg={12}><Card title="最近500条告警创建趋势" styles={{ body: { padding: 12 } }}><ReactEChartsCore option={trendOption} notMerge style={{ height: 300 }} /></Card></Col>
       </Row>
 
       <Row style={{ marginTop: 16 }}>
         <Col span={24}>
           <Card
-            title="告警列表"
+            title="最近500条告警"
             extra={<Space><Select placeholder="按等级筛选" style={{ width: 120 }} value={filterLevel} onChange={setFilterLevel} options={[{ label: '全部', value: '' }, { label: '信息', value: 'INFO' }, { label: '警告', value: 'WARNING' }, { label: '严重', value: 'CRITICAL' }]} /><Button icon={<ReloadOutlined />} onClick={fetchData}>刷新</Button></Space>}
           >
-            <Table columns={columns} dataSource={filterLevel ? alertList.filter((a) => a.alertLevel === filterLevel) : alertList} rowKey="id" size="small" scroll={{ x: 1100, y: 400 }} pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t) => `共 ${t} 条告警` }} />
+            <ResourceStatus title="告警列表" resource={list} />
+            <Table loading={list.loading} columns={columns} dataSource={filterLevel ? alertList.filter((a) => a.alertLevel === filterLevel) : alertList} rowKey="id" size="small" scroll={{ x: 1100, y: 400 }} pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t) => `共 ${t} 条告警` }} />
           </Card>
         </Col>
       </Row>

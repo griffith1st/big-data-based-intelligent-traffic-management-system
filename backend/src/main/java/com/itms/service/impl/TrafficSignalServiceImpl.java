@@ -9,6 +9,11 @@ import com.itms.service.SystemLogService;
 import com.itms.service.TrafficSignalService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import java.util.Locale;
+import java.util.Set;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -27,23 +32,38 @@ public class TrafficSignalServiceImpl implements TrafficSignalService {
     private final SystemLogService systemLogService;
 
     @Override
+    @Transactional
     public List<TrafficSignal> getSignals(String intersectionId) {
+        TrafficValidation.requireIntersection(intersectionId);
+        signalRepository.lockIntersection(intersectionId);
         List<TrafficSignal> signals = signalRepository.findByIntersectionId(intersectionId);
-        return signals.isEmpty() ? createDefaultSignals(intersectionId) : sortSignals(signals);
+        return signals.size() != 4 ? createDefaultSignals(intersectionId) : sortSignals(signals);
     }
 
     @Override
+    @Transactional
     public Map<String, Object> getCurrent(String intersectionId) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("intersectionId", intersectionId);
         result.put("intersectionName", intersectionName(intersectionId));
-        result.put("signals", getSignals(intersectionId));
+        List<TrafficSignal> signals = getSignals(intersectionId);
+        result.put("signals", signals);
+        boolean valid = validPlan(signals);
+        result.put("planValid", valid);
+        result.put("validationMessage", valid ? "" : "Legacy timing is inconsistent; optimize and apply a new simulation plan");
+        result.put("candidateSignals", signals.stream().filter(signal -> signal.getCandidateGreenDuration() != null)
+                .map(this::candidateView).toList());
+        result.put("algorithm", "WEIGHTED_RULES");
+        result.put("executionMode", "SIMULATION");
         result.put("directionStates", directionStates(intersectionId));
         return result;
     }
 
     @Override
+    @Transactional
     public Map<String, Object> optimizeSignals(String intersectionId, String strategy) {
+        TrafficValidation.requireIntersection(intersectionId);
+        signalRepository.lockIntersection(intersectionId);
         String normalized = normalizeStrategy(strategy);
         List<DirectionState> states = directionStates(intersectionId);
         Map<String, DirectionState> byDirection = states.stream()
@@ -58,19 +78,21 @@ public class TrafficSignalServiceImpl implements TrafficSignalService {
         int yellow = 5;
         int cycleLength = clamp((int) Math.round(90 + totalWeight / 95.0), 80, 160);
         int allocatableGreen = cycleLength - yellow * 2;
-        int nsGreen = clamp((int) Math.round(allocatableGreen * nsWeight / totalWeight), 30, 90);
-        int ewGreen = clamp(allocatableGreen - nsGreen, 30, 90);
+        int minGreen = Math.max(30, allocatableGreen - 90);
+        int maxGreen = Math.min(90, allocatableGreen - 30);
+        int nsGreen = clamp((int) Math.round(allocatableGreen * nsWeight / totalWeight), minGreen, maxGreen);
+        int ewGreen = allocatableGreen - nsGreen;
 
         if ("EMERGENCY_FIRST".equals(normalized)) {
             DirectionState emergency = states.stream().filter(DirectionState::emergencyVehicleDetected)
                     .max(Comparator.comparingDouble(DirectionState::weight)).orElse(null);
             if (emergency != null) {
                 if (emergency.direction().equals("NORTH") || emergency.direction().equals("SOUTH")) {
-                    nsGreen = Math.min(90, nsGreen + 15);
-                    ewGreen = Math.max(30, allocatableGreen - nsGreen);
+                    nsGreen = clamp(nsGreen + 15, minGreen, maxGreen);
+                    ewGreen = allocatableGreen - nsGreen;
                 } else {
-                    ewGreen = Math.min(90, ewGreen + 15);
-                    nsGreen = Math.max(30, allocatableGreen - ewGreen);
+                    ewGreen = clamp(ewGreen + 15, minGreen, maxGreen);
+                    nsGreen = allocatableGreen - ewGreen;
                 }
             }
         }
@@ -78,12 +100,15 @@ public class TrafficSignalServiceImpl implements TrafficSignalService {
         double beforeWait = estimateAverageWait(getSignals(intersectionId), states);
         List<TrafficSignal> optimized = upsertSignals(intersectionId, normalized, nsGreen, ewGreen, yellow, cycleLength);
         double afterWait = estimateAverageWait(optimized, states);
-        double improvement = beforeWait <= 0 ? 0 : Math.max(0, Math.min(45, (beforeWait - afterWait) / beforeWait * 100.0));
+        double improvement = beforeWait <= 0 ? 0 : (beforeWait - afterWait) / beforeWait * 100.0;
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("intersectionId", intersectionId);
         result.put("intersectionName", intersectionName(intersectionId));
         result.put("strategy", normalized);
+        result.put("algorithm", "WEIGHTED_RULES");
+        result.put("executionMode", "SIMULATION");
+        result.put("status", "OPTIMIZED");
         result.put("beforeAverageWait", round(beforeWait, 1));
         result.put("afterAverageWait", round(afterWait, 1));
         result.put("improvementRate", round(improvement, 1));
@@ -98,7 +123,7 @@ public class TrafficSignalServiceImpl implements TrafficSignalService {
         int dominantGreen = nsWeight >= ewWeight ? nsGreen : ewGreen;
         int otherGreen = nsWeight >= ewWeight ? ewGreen : nsGreen;
         result.put("explanation", String.format(
-                "检测到 %s 方向综合权重较高，系统将该相位绿灯调整为 %d 秒，另一相位调整为 %d 秒，预计平均等待时间降低 %.1f%%。",
+                "检测到 %s 方向综合权重较高，系统将该相位绿灯调整为 %d 秒，另一相位调整为 %d 秒，按规则模型估算的等待时间改善为 %.1f%%（负值表示增加，尚未应用）。",
                 dominant, dominantGreen, otherGreen, improvement));
 
         systemLogService.log("OPERATION", "信号灯优化",
@@ -107,16 +132,36 @@ public class TrafficSignalServiceImpl implements TrafficSignalService {
     }
 
     @Override
+    @Transactional
     public void applySignalPlan(String intersectionId) {
-        for (TrafficSignal signal : getSignals(intersectionId)) {
+        TrafficValidation.requireIntersection(intersectionId);
+        signalRepository.lockIntersection(intersectionId);
+        List<TrafficSignal> signals = getSignals(intersectionId);
+        if (signals.size() != 4 || signals.stream().anyMatch(signal -> signal.getCandidateGreenDuration() == null))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Optimize a candidate plan before applying it");
+        if (signals.stream().anyMatch(signal -> signal.getCandidateYellowDuration() == null || signal.getCandidateCycleDuration() == null)
+                || !validPlan(signals.stream().map(this::candidateView).toList()))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Candidate plan violates cycle constraints; optimize again");
+        LocalDateTime appliedAt = LocalDateTime.now();
+        for (TrafficSignal signal : signals) {
+            signal.setGreenDuration(signal.getCandidateGreenDuration());
+            signal.setYellowDuration(signal.getCandidateYellowDuration());
+            signal.setCycleDuration(signal.getCandidateCycleDuration());
+            signal.setRedDuration(signal.getCycleDuration() - signal.getGreenDuration() - signal.getYellowDuration());
+            signal.setStrategy(signal.getCandidateStrategy());
             signal.setOptimizationStatus("APPLIED");
-            signal.setAppliedAt(LocalDateTime.now());
+            signal.setAppliedAt(appliedAt);
+            signal.setCandidateGreenDuration(null);
+            signal.setCandidateYellowDuration(null);
+            signal.setCandidateCycleDuration(null);
+            signal.setCandidateStrategy(null);
             signalRepository.save(signal);
         }
-        systemLogService.log("OPERATION", "信号灯优化", "应用方案 " + intersectionId, "SUCCESS");
+        systemLogService.log("OPERATION", "信号灯优化", "应用模拟方案 " + intersectionId, "SUCCESS");
     }
 
     @Override
+    @Transactional
     public List<Map<String, Object>> getSignalOverview() {
         return TrafficNetwork.INTERSECTIONS.values().stream().map(node -> {
             List<TrafficSignal> signals = getSignals(node.intersectionId());
@@ -144,7 +189,9 @@ public class TrafficSignalServiceImpl implements TrafficSignalService {
     }
 
     private List<DirectionState> directionStates(String intersectionId) {
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(5);
         Map<String, TrafficData> latest = trafficDataRepository.findLatestTrafficData().stream()
+                .filter(data -> data.getRecordTime() != null && !data.getRecordTime().isBefore(cutoff))
                 .filter(data -> intersectionId.equals(data.getIntersectionId()))
                 .collect(Collectors.toMap(TrafficData::getDirection, data -> data, (a, b) -> a, LinkedHashMap::new));
         List<DirectionState> states = new ArrayList<>();
@@ -167,7 +214,8 @@ public class TrafficSignalServiceImpl implements TrafficSignalService {
             };
             states.add(new DirectionState(direction, vehicleCount, round(speed, 1), round(queueLength, 1),
                     TrafficDataServiceImpl.congestionText(congestion), congestion, round(waitingTime, 1),
-                    emergency, round(weight, 1)));
+                    emergency, round(weight, 1), data != null, data == null ? "BASELINE_ESTIMATE" : "OBSERVED",
+                    data == null ? null : data.getRecordTime()));
         }
         return states;
     }
@@ -191,42 +239,57 @@ public class TrafficSignalServiceImpl implements TrafficSignalService {
         for (String direction : TrafficNetwork.DIRECTIONS) {
             boolean ns = direction.equals("NORTH") || direction.equals("SOUTH");
             int green = ns ? nsGreen : ewGreen;
-            int red = Math.max(15, cycleLength - green - yellow);
             TrafficSignal signal = existing.getOrDefault(direction, TrafficSignal.builder()
                     .intersectionId(intersectionId)
                     .direction(direction)
                     .build());
-            signal.setGreenDuration(green);
-            signal.setRedDuration(red);
-            signal.setYellowDuration(yellow);
-            signal.setCycleDuration(cycleLength);
-            signal.setPhaseId(ns ? 1 : 2);
+            signal.setCandidateGreenDuration(green);
+            signal.setCandidateYellowDuration(yellow);
+            signal.setCandidateCycleDuration(cycleLength);
+            signal.setCandidateStrategy(strategy);
             signal.setOptimizationStatus("OPTIMIZED");
-            signal.setStrategy(strategy);
-            signal.setAppliedAt(LocalDateTime.now());
-            result.add(signalRepository.save(signal));
+            signalRepository.save(signal);
+            result.add(candidateView(signal));
         }
         return sortSignals(result);
     }
 
     private List<TrafficSignal> createDefaultSignals(String intersectionId) {
-        List<TrafficSignal> signals = new ArrayList<>();
         for (String direction : TrafficNetwork.DIRECTIONS) {
-            boolean ns = direction.equals("NORTH") || direction.equals("SOUTH");
-            TrafficSignal signal = TrafficSignal.builder()
-                    .intersectionId(intersectionId)
-                    .direction(direction)
-                    .greenDuration(40)
-                    .redDuration(45)
-                    .yellowDuration(5)
-                    .cycleDuration(90)
-                    .phaseId(ns ? 1 : 2)
-                    .optimizationStatus("PENDING")
-                    .strategy("FIXED")
-                    .build();
-            signals.add(signalRepository.save(signal));
+            int phase = direction.equals("NORTH") || direction.equals("SOUTH") ? 1 : 2;
+            signalRepository.initializeDirection(intersectionId, direction, phase);
         }
-        return sortSignals(signals);
+        return sortSignals(signalRepository.findByIntersectionId(intersectionId));
+    }
+
+    private TrafficSignal candidateView(TrafficSignal signal) {
+        return TrafficSignal.builder().id(signal.getId()).intersectionId(signal.getIntersectionId())
+                .direction(signal.getDirection()).phaseId(signal.getPhaseId())
+                .greenDuration(signal.getCandidateGreenDuration()).yellowDuration(signal.getCandidateYellowDuration())
+                .cycleDuration(signal.getCandidateCycleDuration())
+                .redDuration(signal.getCandidateCycleDuration() - signal.getCandidateGreenDuration() - signal.getCandidateYellowDuration())
+                .strategy(signal.getCandidateStrategy()).optimizationStatus("OPTIMIZED")
+                .build();
+    }
+
+    private boolean validPlan(List<TrafficSignal> signals) {
+        if (signals.size() != 4) return false;
+        Map<String, TrafficSignal> directions = new LinkedHashMap<>();
+        for (TrafficSignal signal : signals) {
+            if (signal.getGreenDuration() == null || signal.getYellowDuration() == null
+                    || signal.getRedDuration() == null || signal.getCycleDuration() == null
+                    || signal.getGreenDuration() <= 0 || signal.getYellowDuration() <= 0 || signal.getRedDuration() < 0
+                    || signal.getGreenDuration() + signal.getYellowDuration() + signal.getRedDuration() != signal.getCycleDuration()) return false;
+            directions.put(signal.getDirection(), signal);
+        }
+        if (!directions.keySet().containsAll(TrafficNetwork.DIRECTIONS)) return false;
+        TrafficSignal north = directions.get("NORTH"), east = directions.get("EAST");
+        for (TrafficSignal signal : signals) {
+            TrafficSignal phase = signal.getDirection().equals("NORTH") || signal.getDirection().equals("SOUTH") ? north : east;
+            if (!signal.getGreenDuration().equals(phase.getGreenDuration()) || !signal.getYellowDuration().equals(phase.getYellowDuration())
+                    || !signal.getCycleDuration().equals(north.getCycleDuration())) return false;
+        }
+        return north.getGreenDuration() + north.getYellowDuration() + east.getGreenDuration() + east.getYellowDuration() == north.getCycleDuration();
     }
 
     private List<TrafficSignal> sortSignals(List<TrafficSignal> signals) {
@@ -267,7 +330,10 @@ public class TrafficSignalServiceImpl implements TrafficSignalService {
         if (strategy == null || strategy.isBlank()) {
             return "BALANCED";
         }
-        return strategy.toUpperCase();
+        String normalized = strategy.toUpperCase(Locale.ROOT);
+        if (!Set.of("BALANCED", "CONGESTION_FIRST", "EMERGENCY_FIRST").contains(normalized))
+            throw new IllegalArgumentException("Unsupported signal strategy: " + strategy);
+        return normalized;
     }
 
     private String intersectionName(String intersectionId) {
@@ -286,6 +352,7 @@ public class TrafficSignalServiceImpl implements TrafficSignalService {
 
     public record DirectionState(String direction, int vehicleCount, double averageSpeed,
                                  double queueLength, String congestionLevel, int congestionLevelValue,
-                                 double waitingTime, boolean emergencyVehicleDetected, double weight) {
+                                 double waitingTime, boolean emergencyVehicleDetected, double weight,
+                                 boolean observed, String source, LocalDateTime recordTime) {
     }
 }

@@ -1,0 +1,495 @@
+{
+  "status": "passed",
+  "timestamp": "2026-10-17T01:24:13.9759841+08:00",
+  "dependencies": "wsl",
+  "backend": {
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0,
+    "tests": 149
+  },
+  "migrations": "passed",
+  "frontend": "tests and build passed",
+  "suites": [
+    {
+      "suite": "com.itms.common.ApiErrorContractTest",
+      "group": "surefire-reports",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.078,
+      "cases": [
+        "lockoutPreservesItsActualRetryWindow",
+        "malformedJsonIsClientError",
+        "invalidInputIsClientErrorWithNoStackOrDatabaseDetail",
+        "unsupportedHttpMethodRetainsItsProtocolStatus",
+        "uniqueConstraintFailureIsConflictWithoutLeakingSql",
+        "wrongOrMissingQueryParameterIsClientError",
+        "unexpectedFailureIsServerErrorWithoutLeakingInternals"
+      ]
+    },
+    {
+      "suite": "com.itms.config.DefaultUserInitializerTest",
+      "group": "surefire-reports",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 4.67,
+      "cases": [
+        "migratesExistingPlainPasswordWithoutResettingProfileOrDisabledStatus",
+        "migrationPreservesShortLegacyPasswordWhileNewPasswordPolicyIsStricter",
+        "createsMissingDemoUsersWithHashes"
+      ]
+    },
+    {
+      "suite": "com.itms.config.JwtAuthenticationFilterTest",
+      "group": "surefire-reports",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.183,
+      "cases": [
+        "expiredTokenNeverReachesRedis",
+        "revokedTokenDoesNotAuthenticate",
+        "missingTokenDoesNotAuthenticate",
+        "validTokenCreatesAuthenticatedIdentity",
+        "blacklistOutageReturnsJson503WithoutAuthentication",
+        "malformedTokenNeverReachesRedis"
+      ]
+    },
+    {
+      "suite": "com.itms.config.KafkaConsumerConfigTest",
+      "group": "surefire-reports",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.526,
+      "cases": [
+        "failedAsynchronousDltSendIsRaisedByRecoverer",
+        "exhaustedRecordIsNotReportedRecoveredWhenDltBrokerFails",
+        "configuredConcurrencyIsAppliedToRegisteredTrafficListener",
+        "businessFailureRetriesTwiceThenPublishesOriginalRecordToMatchingDltPartition"
+      ]
+    },
+    {
+      "suite": "com.itms.config.KafkaTopicConfigTest",
+      "group": "surefire-reports",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.016,
+      "cases": [
+        "singleBrokerDefaultsIncludeOnePartitionDeadLetterTopic",
+        "configuredPartitionsAndReplicasApplyToSourceAndDeadLetterTopics"
+      ]
+    },
+    {
+      "suite": "com.itms.config.RequestAdmissionTest",
+      "group": "surefire-reports",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.184,
+      "cases": [
+        "rejectsCorsOriginsOutsideConfiguredList",
+        "preservesServiceUnavailableInsteadOfMisclassifyingAsBadRequest",
+        "releasesAdmissionWhenControllerFails",
+        "databaseTimeoutOrExhaustedPoolIsServerOverloadNotClientError",
+        "rejectsExcessWorkWithCorsAndRecoversAfterInflightCompletes"
+      ]
+    },
+    {
+      "suite": "com.itms.config.SecurityBoundaryTest",
+      "group": "surefire-reports",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.279,
+      "cases": [
+        "adminCanReadAdministrativeResourcesAndChangedPasswordInvalidatesToken",
+        "currentDatabaseRoleOverridesOldAdminClaim",
+        "managerCanChangeTrafficButCannotManageAccounts",
+        "driverCanPlanOwnRouteButCannotChangeTrafficOrSignal",
+        "disabledAndDeletedUsersLoseExistingTokenImmediately",
+        "anonymousIdentityAndBusinessReadsReturnJson401"
+      ]
+    },
+    {
+      "suite": "com.itms.controller.UserManagementTest",
+      "group": "surefire-reports",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.391,
+      "cases": [
+        "createsHashedPasswordAndNeverReturnsIt",
+        "rejectsRenamingExistingUsernameInsteadOfSilentlyIgnoringIt",
+        "returns404ForMissingUser",
+        "rejectsEntityIdInjectionAndMissingPassword",
+        "duplicateUsernameReturnsConflictAndInvalidRoleFailsValidation"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.AuthServiceTest",
+      "group": "surefire-reports",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.499,
+      "cases": [
+        "normalLoginRejectsUnmigratedPlaintextPassword",
+        "acceptsBcryptPasswordAndReturnsIdentityWithoutPlainPassword",
+        "concurrentAccountChangeRejectsLoginInsteadOfIssuingStaleToken",
+        "lockedAccountRejectsEvenCorrectPasswordWithRemainingRetryAfter",
+        "unknownUserConsumesTheSameFailureBudget"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.RedisAuthFailureTest",
+      "group": "surefire-reports",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.135,
+      "cases": [
+        "counterUsesOneAtomicCommandAndReturnsItsResult",
+        "invalidOrExpiredTokenDoesNotCreateRevocationEntry",
+        "logoutWriteFailureReturnsUnavailableInsteadOfClaimingSuccess",
+        "failedCounterCommandPropagatesInsteadOfReturningAFalseZero"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.RouteOwnershipTest",
+      "group": "surefire-reports",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.139,
+      "cases": [
+        "clientCannotImpersonateAlertHandler",
+        "shortestUsesPhysicalDistanceAndMissingTrafficIsExplicit",
+        "routeRejectsUnknownStrategyAndInvalidCoordinates",
+        "routeOwnerComesFromAuthenticationAndCrossUserHistoryIsRejected"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.RouteTrafficFreshnessTest",
+      "group": "surefire-reports",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.014,
+      "cases": [
+        "emptyDatabaseStillPlansButDoesNotInventSmoothTraffic",
+        "sampledEndpointsCanDescribeObservedCongestion",
+        "missingEndpointDisclosesPartialDataInsteadOfInventingItsCondition",
+        "expiredSamplesDoNotDescribeTheCurrentRouteAsSmooth"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.SystemLogActorTest",
+      "group": "surefire-reports",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.034,
+      "cases": [
+        "userOperationRecordsTheAuthenticatedActor"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.TrafficBusinessContractTest",
+      "group": "surefire-reports",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.088,
+      "cases": [
+        "invalidTrafficIsRejectedBeforePersistence",
+        "legacySignalPlanWithInvalidCycleIsReportedAndNotSilentlyApplied",
+        "signalDirectionInputsDiscloseObservedVersusBaselineData",
+        "predictionBatchUsesUniqueIdAndNoInventedConfidence",
+        "batchValidatesEveryRowBeforeFirstSaveAndHasBoundedSize",
+        "signalRejectsUnknownIntersectionStrategyAndApplyWithoutCandidate",
+        "historyRejectsUnknownIntersectionAndInvalidWindow",
+        "predictionDatabaseFailurePropagatesInsteadOfFabricatingSuccess",
+        "predictionReadDoesNotTriggerWriteAndReportsSimulationHonestly",
+        "realtimeReadDoesNotCreateSeedRecords",
+        "signalOptimizationConservesPhaseCycleAndKeepsActiveDurationsUntilApply"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.TrafficDataConcurrencyTest",
+      "group": "surefire-reports",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 3.288,
+      "cases": [
+        "summaryAfterWriteDoesNotJoinAnOlderRealtimeFlight",
+        "simultaneousMissesShareOneDatabaseQueryEvenWhenRedisIsDown",
+        "failedOwnerReleasesFlightForTheNextAttempt",
+        "followerTimeoutDoesNotRemoveTheOwnersFlight",
+        "summaryReadingWhileInvalidationIsInProgressCannotPublishAnOldDependency",
+        "oldSummaryDependencyDoesNotRefillEitherCacheAfterWrite",
+        "readStartedBeforeWriteDoesNotRefillOldCache",
+        "invalidationAndCachePublicationCannotCross"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.TrafficDataServiceImplTest",
+      "group": "surefire-reports",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.032,
+      "cases": [
+        "databaseFailureIsNotHiddenAsEmptySuccess",
+        "cacheHitReturnsPayloadWithoutDatabaseAccess",
+        "failedDatabaseSaveDoesNotPublishAlertOrInvalidateCache",
+        "cacheMissMapsDatabaseProjectionAndCachesJson",
+        "malformedJsonFallsBackToDatabase",
+        "redisReadAndWriteOutageStillReturnsDatabaseResult",
+        "summaryUsesWeightedSpeedAndWorstCongestion",
+        "cacheDeleteFailureDoesNotDiscardSuccessfulSave",
+        "alertFailureStillInvalidatesCommittedTrafficData",
+        "saveNormalizesAndInvalidatesBothCachesAfterDatabaseAndAlert"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.TrafficDataTransactionTest",
+      "group": "surefire-reports",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.015,
+      "cases": [
+        "transactionReadBypassesCacheAndDoesNotPublishItsOwnSnapshot",
+        "transactionWriteInvalidatesOnlyAfterCommit",
+        "transactionReadDoesNotJoinNonTransactionalFlight",
+        "rolledBackWriteDoesNotInvalidateCommittedCache",
+        "alertFailureInsideRolledBackTransactionDoesNotEvict"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.TrafficIngestionServiceImplTest",
+      "group": "surefire-reports",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.093,
+      "cases": [
+        "failedReceiptClaimDoesNotAttemptTrafficWrite",
+        "sameTopicPartitionOffsetClaimsOnceAndSavesOnce",
+        "trafficFailureRollsBackTheIngestionTransaction",
+        "malformedPayloadDoesNotClaimOrSave",
+        "differentSourcePositionOrGroupIsASeparateDelivery"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.TrafficKafkaConsumerTest",
+      "group": "surefire-reports",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.001,
+      "cases": [
+        "ingestionFailureEscapesToContainerForRetry",
+        "listenerPassesSourceTopicPartitionOffsetToIngestionService"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.TrafficSimulatorConcurrencyTest",
+      "group": "surefire-reports",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.059,
+      "cases": [
+        "overlappingManualGenerationIsRejectedWithoutPublishingAnotherBatch"
+      ]
+    },
+    {
+      "suite": "com.itms.service.impl.TrafficSimulatorDeliveryTest",
+      "group": "surefire-reports",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 0.017,
+      "cases": [
+        "asyncFailureFallsBackUsingTheSameEventPublishedToKafka",
+        "synchronousSendFailurePersistsEveryGeneratedEventWithStableIdentity"
+      ]
+    },
+    {
+      "suite": "com.itms.integration.KafkaWorkflowIT",
+      "group": "failsafe-reports",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 12.627,
+      "cases": [
+        "validTrafficCommitsAndPoisonRecordMovesToDltBeforeConsumptionContinues"
+      ]
+    },
+    {
+      "suite": "com.itms.integration.RedisApplicationIT",
+      "group": "failsafe-reports",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 10.281,
+      "cases": [
+        "oldCounterWithoutExpirationGetsAWindowOnNextFailure",
+        "oldReadDoesNotRefillStaleValueAfterWriterInvalidates",
+        "failureWindowDoesNotRefreshAndSuccessfulClearResetsCounter",
+        "invalidAndDisabledUsersDoNotReceiveTokens",
+        "logoutRevokesOnlyThatTokenAndUsesRemainingLifetime",
+        "revokedEntryDisappearsWhenTokenLifetimeEnds",
+        "fiveWrongPasswordsLockCorrectPasswordUntilExpiration",
+        "expiredTrafficCacheReloadsChangedDatabaseValue",
+        "coldQueryPopulatesCacheAndHotQueryAvoidsDatabase",
+        "summaryUsesRealtimeCacheAndSuccessfulWriteInvalidatesBoth",
+        "concurrentFailuresKeepEveryIncrementAndAWindowTtl"
+      ]
+    },
+    {
+      "suite": "com.itms.integration.SystemLogPostgresIT",
+      "group": "failsafe-reports",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.246,
+      "cases": [
+        "pagesContainStableRowsAndTotalCount",
+        "combinedFiltersAreAppliedTogether",
+        "excessivePageSizeAndNegativePageAreRejected",
+        "summaryUsesAllRowsAndFullDatesButOnlySevenDaysForTrend"
+      ]
+    },
+    {
+      "suite": "com.itms.integration.TrafficAlertOrderingPostgresIT",
+      "group": "failsafe-reports",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 2.569,
+      "cases": [
+        "realtimeWatermarkDoesNotSuppressPredictedRiskOrAnotherDirection",
+        "olderIdAtSameTimestampCannotReopenAfterNewerSmoothObservation",
+        "waitingOlderWriterRechecksTrafficAfterConditionLockIsAcquired",
+        "largerIdAtSameTimestampCanRepresentNewCongestionAfterRecovery",
+        "olderIdAtSameTimestampCannotResolveNewerCongestion",
+        "firstSmoothObservationPreventsLateOlderCongestionFromOpeningAlert"
+      ]
+    },
+    {
+      "suite": "com.itms.integration.TrafficBusinessPostgresIT",
+      "group": "failsafe-reports",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 2.697,
+      "cases": [
+        "predictionAlertFailureRollsBackEntireBatch",
+        "recoveredConditionIgnoresLateOlderCongestionAndReadStaysReadOnRefresh",
+        "resolvedAlertRemainsTerminalAndNewOccurrenceGetsNewRow",
+        "historyLimitSelectsNewestRowsInDatabaseAndReturnsChronologicalOrder",
+        "signalOptimizationThenApplyIsRealStateTransitionAndPreservesCycle",
+        "signalConcurrentInitializationCreatesOneRowPerDirection",
+        "parallelSameConditionCreatesOneActiveAlert",
+        "standaloneTrafficSaveRollsBackWhenAlertFails",
+        "lowRiskPredictionClosesPreviousPredictedAlertWithoutTouchingRealtime",
+        "latestQueriesChooseExactlyOneRowPerDirectionWithIdTieBreak",
+        "batchRollsBackAllRowsWhenLaterAlertFails",
+        "alertSeparatesDirectionsAndPredictionSourceAndRefreshesExisting"
+      ]
+    },
+    {
+      "suite": "com.itms.integration.TrafficEventIdPostgresIT",
+      "group": "failsafe-reports",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 3.412,
+      "cases": [
+        "sameEventWithChangedContentReturns409AndForgedHashIsIgnored",
+        "batchConflictRollsBackEarlierRowsAndLeavesExistingEventUntouched",
+        "concurrentHttpReplaysReturnOneStoredRecord",
+        "synchronousFallbackAndLateKafkaDeliveryShareTheSameBusinessEvent",
+        "concurrentReversedBatchesKeepInputOrderingAndDeduplicate",
+        "newRequestsWithoutEventIdReceiveDistinctIdsAndInvalidEventIdIsRejected",
+        "sameEventAcrossHttpAndKafkaOffsetsCreatesOneRowAndOneAlert"
+      ]
+    },
+    {
+      "suite": "com.itms.integration.TrafficIngestionPostgresIT",
+      "group": "failsafe-reports",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 1.817,
+      "cases": [
+        "concurrentRedeliveryCommitsExactlyOneTrafficRowForTheSameSourcePosition",
+        "committedIngestionInvalidatesBothCachesBeforeTheNextRead",
+        "databaseConnectionsHaveBoundedStatementAndLockWaits",
+        "failedAlertRollsBackReceiptAndTrafficSoTheSameOffsetCanRetry"
+      ]
+    },
+    {
+      "suite": "com.itms.integration.UserManagementPostgresIT",
+      "group": "failsafe-reports",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 3.062,
+      "cases": [
+        "simultaneousRemovalOfTwoAdminsKeepsOneEnabledAdmin",
+        "accountLifecycleEnforcesRolesPasswordRevocationAndLogout",
+        "staleLoginTimestampUpdateCannotRestoreDisabledAccountOrOldPassword",
+        "lastAdminCannotBeDisabledOrDemoted"
+      ]
+    }
+  ],
+  "frontend_tests": {
+    "tests": 25,
+    "suites": 7,
+    "failures": 0,
+    "bundle": "main.a20d950c.js",
+    "local_node": "24.19.0",
+    "ci_docker_node": "22"
+  },
+  "artifacts": {
+    "backend\\target-completion\\itms-bd-backend-1.0.0.jar": "c080a313386cbd31e6205bbd8cfa98ce0e7cc59dbe0bf8442f99964bddaa95e4",
+    "frontend\\build\\static\\js\\main.a20d950c.js": "196ed8fd69b4b7ce84b14884f0c43f16c5ab3ca5f40839485ca4180d373af13d"
+  }
+}

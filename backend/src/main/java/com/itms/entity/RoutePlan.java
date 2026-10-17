@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 
 /**
  * 路径规划实体
- * 记录A*算法计算的最优路径
+ * 记录 Dijkstra 在静态示例路网及可用交通快照上计算的路线
  */
 @Data
 @Builder
@@ -64,7 +64,7 @@ public class RoutePlan {
     @Column(name = "route_points", columnDefinition = "TEXT")
     private String routePoints;
 
-    /** 总距离（米） */
+    /** 总距离（km） */
     @Column(name = "total_distance")
     private Double totalDistance;
 
@@ -72,7 +72,7 @@ public class RoutePlan {
     @Column(name = "estimated_time")
     private Integer estimatedTime;
 
-    /** 碳排放量（kg） */
+    /** 估算碳排放量（g） */
     @Column(name = "carbon_emission")
     private Double carbonEmission;
 
@@ -82,6 +82,15 @@ public class RoutePlan {
 
     @Column(name = "route_edges", columnDefinition = "TEXT")
     private String routeEdges;
+
+    @Column(length = 30)
+    private String algorithm;
+    @Column(name = "traffic_data_status", length = 20)
+    private String trafficDataStatus;
+    @Column(name = "sampled_intersection_count")
+    private Integer sampledIntersectionCount;
+    @Column(name = "sampled_direction_count")
+    private Integer sampledDirectionCount;
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

@@ -13,6 +13,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.itms.security.UserPrincipal;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 
@@ -31,7 +35,7 @@ public class RoutePlanController {
             @RequestParam Double endLat,
             @RequestParam(defaultValue = "SHORTEST") String strategy,
             @RequestParam(required = false) Long userId) {
-        return Result.success(routePlanService.planRoute(startLng, startLat, endLng, endLat, strategy, userId));
+        return Result.success(routePlanService.planRoute(startLng, startLat, endLng, endLat, strategy, authenticatedUserId(userId)));
     }
 
     @PostMapping("/api/route/green")
@@ -41,12 +45,12 @@ public class RoutePlanController {
             @RequestParam Double endLng,
             @RequestParam Double endLat,
             @RequestParam(required = false) Long userId) {
-        return Result.success(routePlanService.planGreenRoute(startLng, startLat, endLng, endLat, userId));
+        return Result.success(routePlanService.planGreenRoute(startLng, startLat, endLng, endLat, authenticatedUserId(userId)));
     }
 
     @GetMapping("/api/route/history/{userId}")
     public Result<List<RoutePlan>> getUserRoutes(@PathVariable Long userId) {
-        return Result.success(routePlanService.getUserRoutes(userId));
+        return Result.success(routePlanService.getUserRoutes(authenticatedUserId(userId)));
     }
 
     @GetMapping("/api/routes/intersections")
@@ -65,14 +69,23 @@ public class RoutePlanController {
         String end = String.valueOf(request.get("endIntersectionId"));
         String strategy = String.valueOf(request.getOrDefault("strategy", "SHORTEST"));
         Long userId = request.get("userId") instanceof Number number ? number.longValue() : null;
-        return Result.success(routePlanService.planRouteByIntersection(start, end, strategy, userId));
+        return Result.success(routePlanService.planRouteByIntersection(start, end, strategy, authenticatedUserId(userId)));
     }
 
     @GetMapping("/api/routes/history")
     public Result<List<RoutePlan>> routeHistory(@RequestParam(required = false) Long userId) {
         if (userId != null) {
-            return Result.success(routePlanService.getUserRoutes(userId));
+            return Result.success(routePlanService.getUserRoutes(authenticatedUserId(userId)));
         }
-        return Result.success(routePlanService.getAllRoutes());
+        return Result.success(routePlanService.getUserRoutes(authenticatedUserId(null)));
     }
+    private Long authenticatedUserId(Long requestedUserId) {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal))
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Login required");
+        if (requestedUserId != null && !requestedUserId.equals(principal.userId()))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only your own route history is accessible");
+        return principal.userId();
+    }
+
 }

@@ -35,13 +35,13 @@ public class SignalController {
     public Result<Map<String, Object>> optimizeSignals(
             @PathVariable String intersectionId,
             @RequestParam(defaultValue = "BALANCED") String strategy) {
-        return Result.success("DQN优化完成", signalService.optimizeSignals(intersectionId, strategy));
+        return Result.success("规则候选方案已生成，待确认应用", signalService.optimizeSignals(intersectionId, strategy));
     }
 
     @PostMapping({"/api/signal/apply/{intersectionId}", "/api/signals/{intersectionId}/apply"})
     public Result<String> applySignalPlan(@PathVariable String intersectionId) {
         signalService.applySignalPlan(intersectionId);
-        return Result.success("信号灯方案已应用");
+        return Result.success("模拟配时方案已应用（未连接真实设备）");
     }
 
     @GetMapping("/api/signal/overview")

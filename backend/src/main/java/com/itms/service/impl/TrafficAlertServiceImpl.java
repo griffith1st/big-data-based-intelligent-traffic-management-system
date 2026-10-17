@@ -3,10 +3,14 @@ package com.itms.service.impl;
 import com.itms.entity.TrafficAlert;
 import com.itms.entity.TrafficData;
 import com.itms.repository.TrafficAlertRepository;
+import com.itms.repository.TrafficAlertWriter;
 import com.itms.service.SystemLogService;
 import com.itms.service.TrafficAlertService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -19,15 +23,16 @@ public class TrafficAlertServiceImpl implements TrafficAlertService {
 
     private final TrafficAlertRepository alertRepository;
     private final SystemLogService systemLogService;
+    private final TrafficAlertWriter alertWriter;
 
     @Override
     public List<TrafficAlert> getAllAlerts() {
-        return alertRepository.findAllByOrderByCreatedAtDesc();
+        return alertRepository.findTop500ByOrderByCreatedAtDescIdDesc();
     }
 
     @Override
     public List<TrafficAlert> getUnreadAlerts() {
-        return alertRepository.findByStatusOrderByCreatedAtDesc("UNREAD");
+        return alertRepository.findTop500ByStatusOrderByCreatedAtDescIdDesc("UNREAD");
     }
 
     @Override
@@ -36,85 +41,70 @@ public class TrafficAlertServiceImpl implements TrafficAlertService {
     }
 
     @Override
+    @Transactional
     public void markAsRead(Long alertId) {
-        TrafficAlert alert = alertRepository.findById(alertId)
-                .orElseThrow(() -> new RuntimeException("Alert not found: " + alertId));
-        if ("UNREAD".equals(alert.getStatus())) {
-            alert.setStatus("READ");
-            alertRepository.save(alert);
+        requireAlert(alertId);
+        if (alertRepository.markUnreadAsRead(alertId) > 0)
             systemLogService.log("OPERATION", "告警管理", "标记告警已读: " + alertId, "SUCCESS");
-        }
     }
 
     @Override
+    @Transactional
     public void resolveAlert(Long alertId, String handler) {
-        TrafficAlert alert = alertRepository.findById(alertId)
-                .orElseThrow(() -> new RuntimeException("Alert not found: " + alertId));
-        alert.setStatus("RESOLVED");
-        alert.setHandler(handler);
-        alert.setHandledAt(LocalDateTime.now());
-        alertRepository.save(alert);
-        systemLogService.log("OPERATION", "告警管理", "处理告警: " + alertId, "SUCCESS");
+        requireAlert(alertId);
+        if (handler == null || handler.isBlank() || handler.length() > 50)
+            throw new IllegalArgumentException("handler is required and must contain at most 50 characters");
+        if (alertRepository.resolveActive(alertId, handler, LocalDateTime.now()) > 0)
+            systemLogService.log("OPERATION", "告警管理", "处理告警: " + alertId, "SUCCESS");
+    }
+
+    private void requireAlert(Long id) {
+        if (id == null || !alertRepository.existsById(id))
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Alert not found");
     }
 
     @Override
+    @Transactional
     public TrafficAlert createAlert(TrafficAlert alert) {
-        if (alert.getStatus() == null) {
-            alert.setStatus("UNREAD");
-        }
+        if (alert == null || alert.getId() != null) throw new IllegalArgumentException("New alert is required");
+        if (alert.getTitle() == null || alert.getTitle().isBlank() || alert.getTitle().length() > 200
+                || alert.getContent() == null || alert.getContent().isBlank())
+            throw new IllegalArgumentException("Alert title and content are required");
+        if (!List.of("INFO", "WARNING", "CRITICAL").contains(alert.getAlertLevel()))
+            throw new IllegalArgumentException("Unsupported alert level");
+        if (alert.getIntersectionId() != null) TrafficValidation.requireIntersection(alert.getIntersectionId());
+        alert.setStatus("UNREAD"); alert.setHandler(null); alert.setHandledAt(null); alert.setActiveKey(null);
+        alert.setLastSeenAt(LocalDateTime.now());
         return alertRepository.save(alert);
     }
 
     @Override
+    @Transactional
     public void upsertCongestionAlert(TrafficData data) {
+        TrafficValidation.requireIntersection(data.getIntersectionId());
+        boolean prediction = "PREDICTED".equals(data.getDirection());
+        String source = prediction ? "PREDICTION" : "REALTIME";
+        String direction = data.getDirection();
+        if (!prediction && !com.itms.common.TrafficNetwork.DIRECTIONS.contains(direction))
+            throw new IllegalArgumentException("Unsupported alert direction");
+        String activeKey = source + ":" + data.getIntersectionId() + ":" + direction;
+        LocalDateTime observedAt = data.getRecordTime() == null ? LocalDateTime.now() : data.getRecordTime();
         Integer congestionLevel = data.getCongestionLevel();
         if (congestionLevel == null || congestionLevel <= 0) {
+            alertWriter.resolveRecovered(activeKey, source, data, observedAt);
             return;
         }
-
-        String level = switch (congestionLevel) {
-            case 1 -> "INFO";
-            case 2 -> "WARNING";
-            default -> "CRITICAL";
+        String level = switch (congestionLevel) { case 1 -> "INFO"; case 2 -> "WARNING"; default -> "CRITICAL"; };
+        String title = (prediction ? "模拟预测：" : "") + switch (congestionLevel) {
+            case 1 -> "轻度拥堵提示"; case 2 -> "中度拥堵告警"; default -> "严重拥堵告警";
         };
-        String title = switch (congestionLevel) {
-            case 1 -> "轻度拥堵提示";
-            case 2 -> "中度拥堵告警";
-            default -> "严重拥堵告警";
-        };
-
-        LocalDateTime since = LocalDateTime.now().minusMinutes(10);
-        List<TrafficAlert> recent = alertRepository
-                .findByIntersectionIdAndAlertTypeAndCreatedAtAfterOrderByCreatedAtDesc(
-                        data.getIntersectionId(), "CONGESTION", since);
-        TrafficAlert alert = recent.stream()
-                .filter(item -> !"RESOLVED".equals(item.getStatus()))
-                .findFirst()
-                .orElse(null);
-
         String content = String.format("%s %s 车流量 %d 辆，平均速度 %.1f km/h，拥堵等级 %s。",
-                data.getIntersectionName(), data.getDirection(), data.getVehicleCount(),
+                data.getIntersectionName(), direction, data.getVehicleCount(),
                 data.getAvgSpeed(), TrafficDataServiceImpl.congestionText(congestionLevel));
-
-        if (alert == null) {
-            alert = TrafficAlert.builder()
-                    .title(title)
-                    .content(content)
-                    .alertLevel(level)
-                    .alertType("CONGESTION")
-                    .intersectionId(data.getIntersectionId())
-                    .longitude(data.getLongitude())
-                    .latitude(data.getLatitude())
-                    .status("UNREAD")
-                    .build();
-        } else {
-            alert.setTitle(title);
-            alert.setContent(content);
-            alert.setAlertLevel(level);
-            alert.setLongitude(data.getLongitude());
-            alert.setLatitude(data.getLatitude());
-        }
-        alertRepository.save(alert);
+        alertWriter.upsert(TrafficAlert.builder().activeKey(activeKey).source(source).direction(direction)
+                .lastSeenAt(observedAt).title(title).content(content).alertLevel(level)
+                .alertType("CONGESTION").intersectionId(data.getIntersectionId())
+                .longitude(data.getLongitude()).latitude(data.getLatitude()).status("UNREAD").build(), data.getId());
     }
 
     @Override

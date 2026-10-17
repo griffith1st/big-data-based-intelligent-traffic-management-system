@@ -11,6 +11,9 @@ dist/
 # 后端依赖
 target/
 target-concurrency/
+target-completion/
+target-auth/
+target-business/
 .idea/
 *.iml
 *.ipr
@@ -36,3 +39,5 @@ Thumbs.db
 # Docker相关
 docker-compose.override.yml
 *.log
+output/
+.playwright-cli/

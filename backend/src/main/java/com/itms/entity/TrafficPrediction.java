@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 
 /**
  * 交通流量预测实体
- * 存储LSTM模型预测的未来30分钟交通流量数据
+ * 存储趋势模拟器生成的未来30分钟交通流量数据
  */
 @Data
 @Builder
@@ -54,7 +54,7 @@ public class TrafficPrediction {
     @Column(name = "predicted_congestion")
     private Integer predictedCongestion;
 
-    /** 置信度 (0-1) */
+    /** 保留兼容字段；模拟器不产生经过校准的置信度，值为null */
     @Column(name = "confidence")
     private Double confidence;
 

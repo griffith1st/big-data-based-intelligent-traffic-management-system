@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 // 全局入口，确保中文样式和字体正常加载。
 import 'antd/dist/reset.css';
 import ReactDOM from 'react-dom/client';

@@ -8,6 +8,8 @@ import com.itms.repository.*;
 import com.itms.service.*;
 import com.itms.service.impl.*;
 import com.itms.util.JwtUtil;
+import com.itms.security.Passwords;
+import org.springframework.web.server.ResponseStatusException;
 import org.junit.jupiter.api.*;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -66,7 +68,11 @@ class RedisApplicationIT {
         SecurityContextHolder.clearContext();
         var request=new MockHttpServletRequest("GET","/api/traffic/realtime");
         request.addHeader("Authorization","Bearer "+token);
-        new SecurityConfig(jwt,authState).jwtAuthenticationFilter().doFilter(request,new MockHttpServletResponse(),new MockFilterChain());
+        var users = mock(UserRepository.class);
+        var id = jwt.getUserIdFromToken(token);
+        when(users.findById(id)).thenReturn(Optional.of(User.builder().id(id).username(jwt.getUsernameFromToken(token))
+                .enabled(true).role("ADMIN").build()));
+        new SecurityConfig(jwt,authState,users).jwtAuthenticationFilter().doFilter(request,new MockHttpServletResponse(),new MockFilterChain());
         return SecurityContextHolder.getContext().getAuthentication()!=null;
     }
     // Missing logout->Redis wiring or filter revocation lookup breaks this behavior.
@@ -102,16 +108,23 @@ class RedisApplicationIT {
         assertThat(redis.hasKey(key)).isFalse();
         assertThat(authState.recordLoginFailure("alice")).isEqualTo(1);
     }
-    @Test @Tag("known-limitation") void fiveWrongPasswordsStillAllowCorrectPasswordAndClearCounter() throws Exception {
+    @Test void fiveWrongPasswordsLockCorrectPasswordUntilExpiration() throws Exception {
         var users=mock(UserRepository.class);
-        var user=User.builder().id(1L).username("alice").password("fixture-password").enabled(true).role("ADMIN").build();
+        var user=User.builder().id(1L).username("alice").password(Passwords.encode("fixture-password")).enabled(true).role("ADMIN").build();
         when(users.findByUsername("alice")).thenReturn(Optional.of(user));
+        when(users.recordLogin(eq(1L), eq(0L), any())).thenReturn(1);
         var login=new AuthServiceImpl(users,jwt,mock(SystemLogService.class),authState);
         var request=new LoginRequest(); request.setUsername("alice"); request.setPassword("wrong");
         for(int i=0;i<5;i++) assertThatThrownBy(() -> login.login(request)).isInstanceOf(RuntimeException.class);
         String key="itms:auth:login-failed:"+digest("alice");
         assertThat(redis.opsForValue().get(key)).isEqualTo("5");
-        request.setPassword("fixture-password"); var response=login.login(request);
+        request.setPassword("fixture-password");
+        assertThatThrownBy(() -> login.login(request)).isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode().value()).isEqualTo(429));
+        assertThat(authState.loginRetryAfterSeconds("alice")).isBetween(590L,600L);
+        redis.expire(key, Duration.ofMillis(50));
+        await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> assertThat(redis.hasKey(key)).isFalse());
+        var response=login.login(request);
         assertThat(jwt.validateToken(response.getToken())).isTrue();
         assertThat(redis.hasKey(key)).isFalse(); assertThat(user.getLastLoginTime()).isNotNull();
     }

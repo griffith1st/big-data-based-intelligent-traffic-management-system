@@ -32,15 +32,21 @@ public class JwtUtil {
      * @return JWT Token字符串
      */
     public String generateToken(Long userId, String username, String role) {
+        return generateToken(userId, username, role, 0L);
+    }
+
+    public String generateToken(Long userId, String username, String role, long authVersion) {
         SecretKey key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("username", username);
         claims.put("role", role);
+        claims.put("authVersion", authVersion);
 
         return Jwts.builder()
                 .claims(claims)
                 .subject(username)
+                .id(java.util.UUID.randomUUID().toString())
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(key)

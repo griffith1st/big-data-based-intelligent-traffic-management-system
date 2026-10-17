@@ -23,7 +23,7 @@ public interface TrafficPredictionRepository extends JpaRepository<TrafficPredic
     List<TrafficPrediction> findByPredictionBatchIdAndIntersectionIdOrderByPredictionTimeAsc(
             String predictionBatchId, String intersectionId);
 
-    TrafficPrediction findTopByOrderByCreatedAtDesc();
+    TrafficPrediction findTopByOrderByCreatedAtDescIdDesc();
 
     void deleteByPredictionTimeBefore(LocalDateTime time);
 }

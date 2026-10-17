@@ -22,10 +22,12 @@ class RedisAuthFailureTest {
         service.revokeToken(jwt(-60_000).generateToken(1L,"alice","ADMIN"));
         verify(values,never()).set(anyString(),anyString(),anyLong(),any(TimeUnit.class));
     }
-    @Test @Tag("known-limitation") void characterizesLogoutSwallowingRedisWriteFailure() {
+    @Test void logoutWriteFailureReturnsUnavailableInsteadOfClaimingSuccess() {
         doThrow(new IllegalStateException("write unavailable")).when(values).set(anyString(),anyString(),anyLong(),any(TimeUnit.class));
         String token=jwt(60_000).generateToken(1L,"alice","ADMIN");
-        assertThatCode(() -> service.revokeToken(token)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> service.revokeToken(token))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .satisfies(ex -> assertThat(((org.springframework.web.server.ResponseStatusException) ex).getStatusCode().value()).isEqualTo(503));
         verify(values).set(anyString(),eq("1"),anyLong(),eq(TimeUnit.MILLISECONDS));
     }
     @Test void failedCounterCommandPropagatesInsteadOfReturningAFalseZero() {

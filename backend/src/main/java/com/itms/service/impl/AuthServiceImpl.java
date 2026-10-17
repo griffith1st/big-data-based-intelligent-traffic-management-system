@@ -3,6 +3,9 @@ package com.itms.service.impl;
 import com.itms.dto.LoginRequest;
 import com.itms.dto.LoginResponse;
 import com.itms.entity.User;
+import com.itms.entity.SystemLog;
+import com.itms.security.Passwords;
+import com.itms.security.LoginLockedException;
 import com.itms.repository.UserRepository;
 import com.itms.service.AuthService;
 import com.itms.service.RedisAuthService;
@@ -10,6 +13,8 @@ import com.itms.service.SystemLogService;
 import com.itms.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 
@@ -20,6 +25,8 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
+    private static final String DUMMY_PASSWORD = Passwords.encode("invalid-user-placeholder");
+
     private final UserRepository userRepository;
     private final JwtUtil jwtUtil;
     private final SystemLogService systemLogService;
@@ -27,33 +34,39 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public LoginResponse login(LoginRequest request) {
-        // 查找用户
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new RuntimeException("用户名或密码错误"));
-
-        // 检查用户状态
-        if (!Boolean.TRUE.equals(user.getEnabled())) {
-            throw new RuntimeException("账户已被禁用，请联系管理员");
-        }
-
-        // 验证密码（生产环境应使用BCrypt加密）
-        if (!user.getPassword().equals(request.getPassword())) {
-            long failures = redisAuthService.recordLoginFailure(request.getUsername());
-            if (failures >= 5) {
-                throw new RuntimeException("登录失败次数过多，请10分钟后重试");
+        String username = request.getUsername().trim();
+        long retry = redisAuthService.loginRetryAfterSeconds(username);
+        if (retry > 0) throw new LoginLockedException(retry);
+        User user = userRepository.findByUsername(username).orElse(null);
+        boolean correctPassword = Passwords.matches(request.getPassword(), user == null ? DUMMY_PASSWORD : user.getPassword());
+        if (user == null || !Boolean.TRUE.equals(user.getEnabled()) || !correctPassword) {
+            try {
+                long failures = redisAuthService.recordLoginFailure(username);
+                if (failures >= 5) throw new LoginLockedException(redisAuthService.loginRetryAfterSeconds(username));
+            } catch (ResponseStatusException e) {
+                throw e;
+            } catch (RuntimeException e) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "认证状态服务暂时不可用，请稍后重试", e);
             }
-            throw new RuntimeException("用户名或密码错误");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户名或密码错误，或账号已被禁用");
         }
-
-        redisAuthService.clearLoginFailures(request.getUsername());
+        try {
+            redisAuthService.clearLoginFailures(username);
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "认证状态服务暂时不可用，请稍后重试", e);
+        }
 
         // 记录最近登录时间
         user.setLastLoginTime(LocalDateTime.now());
-        userRepository.save(user);
-        systemLogService.log("LOGIN", "认证管理", "用户登录: " + user.getUsername(), "SUCCESS");
+        if (userRepository.recordLogin(user.getId(), user.getAuthVersion(), user.getLastLoginTime()) == 0)
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "账号状态已改变，请重新登录");
+        systemLogService.log(SystemLog.builder().userId(user.getId()).username(user.getUsername())
+                .logType("LOGIN").module("认证管理").description("用户登录").status("SUCCESS").build());
 
         // 生成Token
-        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
+        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole(), user.getAuthVersion());
 
         return LoginResponse.builder()
                 .token(token)
@@ -72,6 +85,7 @@ public class AuthServiceImpl implements AuthService {
             return;
         }
         redisAuthService.revokeToken(authorizationHeader.substring(7).trim());
+        systemLogService.log("LOGIN", "认证管理", "用户登出", "SUCCESS");
     }
 }
 

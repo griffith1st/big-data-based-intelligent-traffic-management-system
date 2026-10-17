@@ -1,13 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Row, Col, Form, Select, Button, Table, Tag, Space, Spin, message, Statistic } from 'antd';
+import { Card, Row, Col, Form, Select, Button, Table, Tag, Space, message, Statistic, Empty, Alert } from 'antd';
 import { EnvironmentOutlined, SwapOutlined, CarOutlined, SafetyOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import ReactEChartsCore from 'echarts-for-react';
 import { routeApi, trafficApi } from '../services/api';
+import { useResource } from '../services/useResource';
+import ResourceStatus from '../components/ResourceStatus';
+import { useAuth } from '../services/AuthContext';
 
 const STRATEGY_MAP: Record<string, { label: string; icon: React.ReactNode; desc: string; color: string }> = {
   SHORTEST: { label: '最短路径', icon: <SwapOutlined />, desc: '优先减少行驶距离', color: 'blue' },
   FASTEST: { label: '最快路径', icon: <ClockCircleOutlined />, desc: '优先减少通行时间', color: 'green' },
-  GREENEST: { label: '低碳路径', icon: <SafetyOutlined />, desc: '优先降低碳排放', color: 'orange' },
+  LOW_CARBON: { label: '低碳路径', icon: <SafetyOutlined />, desc: '优先降低碳排放', color: 'orange' },
 };
 
 const parseJsonArray = (value: unknown): any[] => {
@@ -21,83 +24,51 @@ const parseJsonArray = (value: unknown): any[] => {
   }
 };
 
+const plannedEdgeCongestionLevel = (edge: any): number => {
+  if (edge.trafficDataStatus === 'PARTIAL' || edge.trafficDataStatus === 'UNAVAILABLE') return -1;
+  const level = edge.congestionLevel;
+  return Number.isInteger(level) && level >= 0 && level <= 3 ? level : -1;
+};
+
 const RoutePlanning: React.FC = () => {
-  const [booting, setBooting] = useState(true);
+  const { user } = useAuth();
+  const network = useResource(async signal => {
+    const [nodes, edges] = await Promise.all([routeApi.getIntersections(signal), routeApi.getNetwork(signal)]);
+    return { nodes: nodes.data || [], edges: edges.data?.edges || [] };
+  });
+  const routeHistory = useResource(signal => routeApi.getHistory(user?.userId, signal).then(r => r.data || []), [user?.userId]);
+  const traffic = useResource(signal => trafficApi.getRealTime(signal).then(r => r.data || []), [], 5000);
+  const intersections: any[] = network.data?.nodes || [];
+  const networkEdges: any[] = network.data?.edges || [];
+  const history = routeHistory.data || [];
   const [loading, setLoading] = useState(false);
-  const [intersections, setIntersections] = useState<any[]>([]);
-  const [networkEdges, setNetworkEdges] = useState<any[]>([]);
   const [routeResult, setRouteResult] = useState<any>(null);
-  const [history, setHistory] = useState<any[]>([]);
-  const [trafficMap, setTrafficMap] = useState<Map<string, number>>(new Map());
-  const [trafficTimestamp, setTrafficTimestamp] = useState<string>('');
   const [form] = Form.useForm();
-
-  const getUserId = () => {
-    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}');
-    return userInfo.userId as number | undefined;
-  };
-
-  const refreshHistory = async () => {
-    const histRes = await routeApi.getHistory(getUserId());
-    if (histRes.code === 200) setHistory(histRes.data || []);
-  };
-
-  const fetchBaseData = async () => {
-    try {
-      const [nodesRes, networkRes, historyRes] = await Promise.all([
-        routeApi.getIntersections(),
-        routeApi.getNetwork(),
-        routeApi.getHistory(getUserId()),
-      ]);
-      const nodes = nodesRes.code === 200 ? nodesRes.data || [] : [];
-      setIntersections(nodes);
-      setNetworkEdges(networkRes.code === 200 ? networkRes.data?.edges || [] : []);
-      setHistory(historyRes.code === 200 ? historyRes.data || [] : []);
-      if (nodes.length >= 2) {
-        form.setFieldsValue({
-          start: nodes[0].intersectionId,
-          end: nodes[1].intersectionId,
-          strategy: 'SHORTEST',
-        });
-      }
-    } catch (error: any) {
-      message.error(error.message || '获取路网失败');
-    } finally {
-      setBooting(false);
-    }
-  };
-
-  useEffect(() => { fetchBaseData(); }, []);
-
-  const fetchTraffic = async () => {
-    try {
-      const res = await trafficApi.getRealTime();
-      if (res.code === 200 && res.data) {
-        const map = new Map<string, number>();
-        (res.data as any[]).forEach((item: any) => {
-          const id = item.intersectionId;
-          const level = item.congestionLevel ?? 0;
-          map.set(id, Math.max(map.get(id) ?? 0, level));
-        });
-        setTrafficMap(map);
-        setTrafficTimestamp(new Date().toLocaleTimeString());
-      }
-    } catch {
-      // traffic data is optional
-    }
-  };
-
   useEffect(() => {
-    fetchTraffic();
-    const timer = setInterval(fetchTraffic, 5000);
-    return () => clearInterval(timer);
-  }, []);
-
+    const nodes = network.data?.nodes || [];
+    if (nodes.length >= 2 && !form.getFieldValue('start')) {
+      form.setFieldsValue({ start: nodes[0].intersectionId, end: nodes[1].intersectionId, strategy: 'SHORTEST' });
+    }
+  }, [network.data, form]);
+  const trafficMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of traffic.data || []) {
+      const age = Date.now() - Date.parse(item.recordTime);
+      if (Number.isFinite(age) && age >= 0 && age <= 5 * 60 * 1000
+          && Number.isInteger(item.congestionLevel) && item.congestionLevel >= 0 && item.congestionLevel <= 3)
+        map.set(item.intersectionId, Math.max(map.get(item.intersectionId) ?? 0, item.congestionLevel));
+    }
+    return map;
+  }, [traffic.data]);
+  const trafficTimes = (traffic.data || []).map(item => Date.parse(item.recordTime)).filter(Number.isFinite);
+  const trafficTimestamp = trafficTimes.length ? new Date(Math.max(...trafficTimes)).toLocaleString() : '';
   const getEdgeCongestionLevel = (from: string, to: string): number => {
-    return Math.max(trafficMap.get(from) ?? 0, trafficMap.get(to) ?? 0);
+    if (!trafficMap.has(from) || !trafficMap.has(to)) return -1;
+    return Math.max(trafficMap.get(from)!, trafficMap.get(to)!);
   };
 
   const CONGESTION_COLORS: Record<number, string> = {
+    [-1]: '#999999',
     0: '#52c41a',
     1: '#faad14',
     2: '#fa8c16',
@@ -105,6 +76,7 @@ const RoutePlanning: React.FC = () => {
   };
 
   const CONGESTION_LABELS: Record<number, string> = {
+    [-1]: '未知（缺少采样）',
     0: '畅通',
     1: '轻度拥堵',
     2: '中度拥堵',
@@ -113,7 +85,7 @@ const RoutePlanning: React.FC = () => {
 
   const handlePlan = async (values: any) => {
     if (values.start === values.end) {
-      message.warning('起点和终点不能相同');
+      message.warning('请选择不同的起点和终点');
       return;
     }
     setLoading(true);
@@ -122,12 +94,12 @@ const RoutePlanning: React.FC = () => {
         startIntersectionId: values.start,
         endIntersectionId: values.end,
         strategy: values.strategy,
-        userId: getUserId(),
+        userId: user?.userId,
       });
       if (res.code === 200) {
         setRouteResult(res.data);
         message.success('路线规划完成');
-        refreshHistory();
+        routeHistory.reload();
       } else {
         message.error(res.message || '路线规划失败');
       }
@@ -161,7 +133,7 @@ const RoutePlanning: React.FC = () => {
           const data = params.data || {};
           if (data.edgeInfo) {
             const e = data.edgeInfo;
-            const congestion = e.congestionLabel || (e.congestionLevel !== undefined ? CONGESTION_LABELS[e.congestionLevel] : '');
+            const congestion = e.congestionLabel || (e.congestionLevel != null ? CONGESTION_LABELS[e.congestionLevel] : '未知（缺少采样）');
             const congestionHtml = congestion ? `<br/>路况: ${congestion}` : '';
             const timeHtml = e.estimatedTimeMin !== undefined ? `<br/>预计时间: ${e.estimatedTimeMin} 分钟` : '';
             return `${e.from} → ${e.to}<br/>距离: ${e.distanceKm} km${timeHtml}${congestionHtml}`;
@@ -184,7 +156,7 @@ const RoutePlanning: React.FC = () => {
             const color = CONGESTION_COLORS[level] || '#d9d9d9';
             return {
               coords: [[from.longitude, from.latitude], [to.longitude, to.latitude]],
-              edgeInfo: edge,
+              edgeInfo: { ...edge, congestionLevel: level },
               lineStyle: { color, width: Math.max(1.5, level + 1.5), opacity: 0.7 },
             };
           }).filter(Boolean),
@@ -198,7 +170,7 @@ const RoutePlanning: React.FC = () => {
             const from = intersections.find((node) => node.intersectionId === edge.from);
             const to = intersections.find((node) => node.intersectionId === edge.to);
             if (!from || !to) return null;
-            const level = edge.congestionLevel ?? getEdgeCongestionLevel(edge.from, edge.to);
+            const level = plannedEdgeCongestionLevel(edge);
             return {
               coords: [[from.longitude, from.latitude], [to.longitude, to.latitude]],
               edgeInfo: { ...edge, congestionLabel: CONGESTION_LABELS[level] || '' },
@@ -235,7 +207,7 @@ const RoutePlanning: React.FC = () => {
     {
       title: '策略', dataIndex: 'strategy', key: 'strategy',
       render: (s: string) => {
-        const info = STRATEGY_MAP[s];
+        const info = STRATEGY_MAP[s === 'GREENEST' ? 'LOW_CARBON' : s];
         return info ? <Tag icon={info.icon} color={info.color}>{info.label}</Tag> : <Tag>{s}</Tag>;
       },
     },
@@ -251,16 +223,19 @@ const RoutePlanning: React.FC = () => {
   const routeCongestionSummary = useMemo(() => {
     const edges = parseJsonArray(routeResult?.routeEdges);
     if (!edges.length) return null;
-    const levels: number[] = edges.map((e: any) => e.congestionLevel ?? 0);
+    const levels: number[] = edges.map(plannedEdgeCongestionLevel);
+    if (levels.some(level => level < 0)) return { maxLevel: -1, avgLevel: -1, maxLabel: '未知（缺少采样）' };
     const maxLevel = Math.max(...levels);
     const avgLevel = levels.reduce((a: number, b: number) => a + b, 0) / levels.length;
     return { maxLevel, avgLevel, maxLabel: CONGESTION_LABELS[maxLevel] || '畅通' };
   }, [routeResult]);
 
-  if (booting) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
 
   return (
     <div>
+      <ResourceStatus title="路网" resource={network} />
+      <ResourceStatus title="路况" resource={traffic} />
+      <Alert type="info" showIcon message="道路图上的路线规划" description="使用最短路径搜索；通行时间与碳排放是基于采样或静态道路参数的估算，不等同于真实导航。灰色路段表示采样缺失或超过5分钟。" style={{ marginBottom: 16 }} />
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={8}>
           <Card title="路线规划" style={{ height: '100%' }}>
@@ -277,7 +252,7 @@ const RoutePlanning: React.FC = () => {
                   value: key,
                 }))} />
               </Form.Item>
-              <Button type="primary" htmlType="submit" loading={loading} icon={<EnvironmentOutlined />} block size="large">
+              <Button type="primary" htmlType="submit" loading={loading} disabled={intersections.length < 2 || !networkEdges.length || network.loading} icon={<EnvironmentOutlined />} block size="large">
                 开始规划
               </Button>
             </Form>
@@ -286,9 +261,9 @@ const RoutePlanning: React.FC = () => {
         </Col>
 
         <Col xs={24} lg={16}>
-          <Card title="路线可视化" bodyStyle={{ padding: 12 }}>
-            <ReactEChartsCore option={getRouteChartOption()} notMerge style={{ height: 390 }} />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 8, fontSize: 12, color: '#666' }}>
+          <Card title="路线可视化" styles={{ body: { padding: 12 } }}>
+            {intersections.length && networkEdges.length ? <ReactEChartsCore option={getRouteChartOption()} notMerge style={{ height: 390 }} /> : <Empty description="暂无可规划路网，请刷新或检查路网配置" />}
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 8, fontSize: 12, color: '#666' }}>
               {Object.entries(CONGESTION_LABELS).map(([level, label]) => (
                 <span key={level} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{
@@ -299,27 +274,28 @@ const RoutePlanning: React.FC = () => {
                 </span>
               ))}
               <span style={{ marginLeft: 8, color: '#999' }}>
-                实时路况 {trafficTimestamp ? `更新于 ${trafficTimestamp}` : '加载中...'}
+                最新采样 {trafficTimestamp || '暂无采样时间'}
               </span>
             </div>
           </Card>
 
           {routeResult && (
-            <Card title="规划结果" style={{ marginTop: 16 }} bodyStyle={{ padding: 16 }}>
+            <Card title="规划结果" style={{ marginTop: 16 }} styles={{ body: { padding: 16 } }}>
+              <p>采样覆盖：{({ LIVE: "完整", PARTIAL: "部分路段使用静态参数", UNAVAILABLE: "暂无采样，使用静态路网" } as Record<string, string>)[routeResult.trafficDataStatus] || "历史记录未标注"}</p>
               <Row gutter={[16, 16]}>
-                <Col span={6}><Statistic title="总距离" value={routeResult.totalDistance?.toFixed(2) || 0} suffix="km" prefix={<CarOutlined />} valueStyle={{ color: '#1677ff', fontSize: 22 }} /></Col>
-                <Col span={6}><Statistic title="预计时间" value={routeResult.estimatedTime?.toFixed(0) || 0} suffix="分钟" prefix={<ClockCircleOutlined />} valueStyle={{ color: '#52c41a', fontSize: 22 }} /></Col>
-                <Col span={6}><Statistic title="碳排放" value={routeResult.carbonEmission?.toFixed(1) || 0} suffix="g" prefix={<SafetyOutlined />} valueStyle={{ color: '#fa8c16', fontSize: 22 }} /></Col>
+                <Col span={6}><Statistic title="总距离" value={routeResult.totalDistance?.toFixed(2) ?? '—'} suffix="km" prefix={<CarOutlined />} valueStyle={{ color: '#1677ff', fontSize: 22 }} /></Col>
+                <Col span={6}><Statistic title="预计时间" value={routeResult.estimatedTime?.toFixed(0) ?? '—'} suffix="分钟" prefix={<ClockCircleOutlined />} valueStyle={{ color: '#52c41a', fontSize: 22 }} /></Col>
+                <Col span={6}><Statistic title="碳排放" value={routeResult.carbonEmission?.toFixed(1) ?? '—'} suffix="g" prefix={<SafetyOutlined />} valueStyle={{ color: '#fa8c16', fontSize: 22 }} /></Col>
                 <Col span={6}>
                   <Statistic
                     title="沿途路况"
-                    value={routeCongestionSummary?.maxLabel || '畅通'}
+                    value={routeCongestionSummary?.maxLabel || '未知'}
                     prefix={<span style={{
                       display: 'inline-block', width: 12, height: 12, borderRadius: '50%',
-                      background: CONGESTION_COLORS[routeCongestionSummary?.maxLevel ?? 0] || '#52c41a',
+                      background: CONGESTION_COLORS[routeCongestionSummary?.maxLevel ?? -1] || '#999999',
                       marginRight: 4,
                     }} />}
-                    valueStyle={{ color: CONGESTION_COLORS[routeCongestionSummary?.maxLevel ?? 0] || '#52c41a', fontSize: 20 }}
+                    valueStyle={{ color: CONGESTION_COLORS[routeCongestionSummary?.maxLevel ?? -1] || '#999999', fontSize: 20 }}
                   />
                 </Col>
               </Row>
@@ -330,8 +306,9 @@ const RoutePlanning: React.FC = () => {
 
       <Row style={{ marginTop: 16 }}>
         <Col span={24}>
-          <Card title="历史规划" bodyStyle={{ padding: 0 }}>
-            <Table columns={historyColumns} dataSource={history} rowKey="id" size="small" scroll={{ x: 900 }} pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条记录` }} />
+          <Card title="我的历史规划（最近500条）" styles={{ body: { padding: 0 } }}>
+            <ResourceStatus resource={routeHistory} />
+            <Table loading={routeHistory.loading} columns={historyColumns} dataSource={history} rowKey="id" size="small" scroll={{ x: 900 }} pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条记录` }} />
           </Card>
         </Col>
       </Row>

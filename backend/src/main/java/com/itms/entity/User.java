@@ -29,6 +29,11 @@ public class User {
     @Column(nullable = false, length = 255)
     private String password;
 
+    /** Incremented when credentials change so existing tokens expire immediately. */
+    @Column(name = "auth_version", nullable = false)
+    @Builder.Default
+    private Long authVersion = 0L;
+
     @Column(name = "real_name", length = 100)
     private String realName;
 

@@ -16,8 +16,8 @@ spring:
 
   datasource:
     url: jdbc:postgresql://localhost:5432/itms_bd
-    username: postgres
-    password: ${SPRING_DATASOURCE_PASSWORD:123456}
+    username: ${SPRING_DATASOURCE_USERNAME:itms_admin}
+    password: ${SPRING_DATASOURCE_PASSWORD:itms123456}
     driver-class-name: org.postgresql.Driver
     hikari:
       connection-timeout: 2000
@@ -68,7 +68,7 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     listener:
       ack-mode: record
-  # Redis：JWT 黑名单与登录失败计数。Docker 中通过 SPRING_DATA_REDIS_HOST=redis 注入。
+  # Redis：JWT 撤销、登录失败窗口、交通热点缓存。
   data:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
@@ -103,7 +103,10 @@ itms:
   concurrency:
     max-in-flight: ${ITMS_MAX_IN_FLIGHT:24}
   demo:
-    reset-default-users: true
+    enabled: ${ITMS_DEMO_ENABLED:true}
+    reset-default-users: ${ITMS_DEMO_RESET_DEFAULT_USERS:false}
+  auth:
+    migrate-legacy-passwords: ${ITMS_MIGRATE_LEGACY_PASSWORDS:true}
   traffic:
     cache:
       wait-timeout-ms: 1500
@@ -111,7 +114,7 @@ itms:
     prediction-window: 30
     signal-optimize-interval: 60
     simulator:
-      enabled: true
+      enabled: ${ITMS_TRAFFIC_SIMULATOR_ENABLED:true}
       interval-ms: 5000
   kafka:
     topic:
@@ -122,7 +125,5 @@ itms:
       concurrency: ${ITMS_KAFKA_CONCURRENCY:1}
       retry-interval-ms: 1000
       max-retries: 2
-  websocket:
-    endpoint: /ws/traffic
   cors:
-    allowed-origins: http://localhost:3000
+    allowed-origins: ${ITMS_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}

@@ -1,5 +1,7 @@
 # 高并发改造：测试边界、运行方法与证据
 
+> **版本说明（2026-10-17）：** 下文是 2026-10-16 源码与环境的历史验证报告，66项回归、2791.47成功RPS、Docker故障和“未运行真实Kafka”都属于当时状态。当前鉴权每请求增加用户表查询，交通GET不再自动生成种子数据，登录锁定与eventId幂等规则也已更新；旧第4.6节及种子准备过程只作复盘。当前测试使用独立Docker PostgreSQL/Redis/Kafka，命令和验证范围见 [项目完善回归](project-completion.md)，一键入口见 [quickstart](quickstart.md)。旧压测 evidence 不修改，当前容量需以当前版本重新测量。
+
 本文对应 2026-10-16 的并发改造，设计说明见 [高并发方案](../architecture/high-concurrency-plan.md)。2026-10-04 的 [Redis 补测](redis-regression.md) 是历史快照，其中的用例数量、已知限制和环境版本不代表本次结果。
 
 本次测试分成应用逻辑、真实 Redis、真实 PostgreSQL、真实 HTTP 压测四层。每层验证不同事实；一个 MockMvc 用例通过，不等于真实 Kafka Broker 或数据库事务已经验证。

@@ -1,40 +1,27 @@
-﻿import React, { useEffect, useState } from 'react';
-import { Card, Table, Tag, Row, Col, Statistic, Select, Space, Spin, message } from 'antd';
+import React, { useState } from 'react';
+import { Card, Table, Tag, Row, Col, Statistic, Select, Space, Button, message, Empty } from 'antd';
 import { CarOutlined, WarningOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import ReactEChartsCore from 'echarts-for-react';
 import { trafficApi } from '../services/api';
+import { useResource } from '../services/useResource';
+import ResourceStatus from '../components/ResourceStatus';
+import { useAuth } from '../services/AuthContext';
+import { canManageTraffic } from '../services/session';
 
 const TrafficMonitor: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [realtimeData, setRealtimeData] = useState<any[]>([]);
-  const [heatmapData, setHeatmapData] = useState<any[]>([]);
-  const [selectedIntersection, setSelectedIntersection] = useState<string>('');
-
-  const fetchData = async () => {
-    try {
-      const [realtimeRes, heatmapRes] = await Promise.all([
-        trafficApi.getRealTime(),
-        trafficApi.getHeatmap(),
-      ]);
-      if (realtimeRes.code === 200) setRealtimeData(realtimeRes.data || []);
-      if (heatmapRes.code === 200) {
-        setHeatmapData(heatmapRes.data || []);
-        if (!selectedIntersection && heatmapRes.data?.length > 0) {
-          setSelectedIntersection(heatmapRes.data[0].intersectionId);
-        }
-      }
-    } catch (error) {
-      console.error('获取交通数据失败:', error);
-    } finally {
-      setLoading(false);
-    }
+  const { user } = useAuth();
+  const realtime = useResource(signal => trafficApi.getRealTime(signal).then(r => r.data || []), [], 5000);
+  const heatmap = useResource(signal => trafficApi.getHeatmap(signal).then(r => r.data || []), [], 5000);
+  const realtimeData = realtime.data || [];
+  const heatmapData = heatmap.data || [];
+  const [selectedIntersection, setSelectedIntersection] = useState<string>();
+  const [generating, setGenerating] = useState(false);
+  const generate = async () => {
+    setGenerating(true);
+    try { await trafficApi.generateOnce(); message.success('已提交一批模拟数据，消费入库后显示'); realtime.reload(); heatmap.reload(); }
+    catch (error: any) { message.error(error.message); }
+    finally { setGenerating(false); }
   };
-
-  useEffect(() => {
-    fetchData();
-    const timer = setInterval(fetchData, 5000);
-    return () => clearInterval(timer);
-  }, []);
 
   // 各方向车流量饼图
   const directionPieOption = {
@@ -83,7 +70,6 @@ const TrafficMonitor: React.FC = () => {
     },
   ];
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
 
   const totalVehicles = heatmapData.reduce((s: number, d: any) => s + (d.totalVehicleCount || 0), 0);
   const stats = {
@@ -97,29 +83,31 @@ const TrafficMonitor: React.FC = () => {
 
   return (
     <div>
+      <ResourceStatus title="路口汇总" resource={heatmap} />
+      {canManageTraffic(user?.role) && <Button onClick={generate} loading={generating} style={{ marginBottom: 16 }}>生成一批模拟交通数据</Button>}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
-          <Card><Statistic title="总车流量" value={stats.total} prefix={<CarOutlined />} suffix="辆" valueStyle={{ color: '#1677ff' }} /></Card>
+          <Card><Statistic title="总车流量" value={heatmap.updatedAt ? stats.total : '—'} prefix={<CarOutlined />} suffix="辆" valueStyle={{ color: '#1677ff' }} /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card><Statistic title="平均速度" value={stats.avgSpeed} prefix={<CarOutlined />} suffix="km/h" valueStyle={{ color: '#52c41a' }} /></Card>
+          <Card><Statistic title="平均速度" value={heatmap.updatedAt ? stats.avgSpeed : '—'} prefix={<CarOutlined />} suffix="km/h" valueStyle={{ color: '#52c41a' }} /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card><Statistic title="拥堵路口" value={stats.congested} prefix={<WarningOutlined />} valueStyle={{ color: stats.congested > 0 ? '#ff4d4f' : '#52c41a' }} /></Card>
+          <Card><Statistic title="拥堵路口" value={heatmap.updatedAt ? stats.congested : '—'} prefix={<WarningOutlined />} valueStyle={{ color: stats.congested > 0 ? '#ff4d4f' : '#52c41a' }} /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card><Statistic title="畅通路口" value={stats.smooth} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#52c41a' }} /></Card>
+          <Card><Statistic title="畅通路口" value={heatmap.updatedAt ? stats.smooth : '—'} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#52c41a' }} /></Card>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={12}>
-          <Card title="各方向车流量分布" bodyStyle={{ padding: 12 }}>
-            <ReactEChartsCore option={directionPieOption} style={{ height: 350 }} />
+          <Card title="各方向车流量分布" styles={{ body: { padding: 12 } }}>
+            {realtimeData.length ? <ReactEChartsCore option={directionPieOption} style={{ height: 350 }} /> : <Empty description="暂无交通采样数据" />}
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card title="路口详细数据" bodyStyle={{ padding: 12 }}>
+          <Card title="路口详细数据" styles={{ body: { padding: 12 } }}>
             <ReactEChartsCore
               option={{
                 tooltip: { trigger: 'axis' as const },
@@ -162,7 +150,9 @@ const TrafficMonitor: React.FC = () => {
               </Space>
             }
           >
+            <ResourceStatus title="实时明细" resource={realtime} />
             <Table
+              loading={realtime.loading && !realtime.updatedAt}
               columns={columns}
               dataSource={selectedIntersection
                 ? realtimeData.filter((d: any) => d.intersectionId === selectedIntersection)

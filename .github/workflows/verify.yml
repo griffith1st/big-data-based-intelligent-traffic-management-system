@@ -1,0 +1,66 @@
+name: Verify project
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  application:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify migrations, backend and frontend with isolated dependencies
+        shell: pwsh
+        run: ./scripts/verify-project.ps1
+      - name: Build final deployment images sequentially
+        run: |
+          docker compose -p itms-ci-demo build backend
+          docker compose -p itms-ci-demo build frontend
+      - name: Start and exercise the complete deployment
+        shell: pwsh
+        env:
+          POSTGRES_PORT: '55433'
+          REDIS_PORT: '16380'
+          KAFKA_PORT: '19093'
+          BACKEND_PORT: '18080'
+          FRONTEND_PORT: '13000'
+          ITMS_TRAFFIC_SIMULATOR_ENABLED: 'false'
+        run: |
+          docker compose -p itms-ci-demo up -d --no-build --wait --wait-timeout 240
+          if ($LASTEXITCODE -ne 0) { throw 'Compose deployment failed' }
+          python scripts/smoke-deployment.py
+          if ($LASTEXITCODE -ne 0) { throw 'Deployment smoke failed' }
+          $receipts = docker compose -p itms-ci-demo exec -T postgres psql -U itms_admin -d itms_bd -Atc 'SELECT count(*) FROM traffic_ingestion_receipts'
+          if ($LASTEXITCODE -ne 0 -or [int]$receipts -lt 56) { throw 'Generated batch did not traverse Kafka ingestion' }
+          'Deployment smoke passed; Kafka receipts: ' + $receipts | Set-Content output/verification/deployment.txt
+      - name: Collect deployment logs and stop its disposable resources
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p output/verification
+          docker compose -p itms-ci-demo logs --no-color > output/verification/deployment.log 2>&1
+          docker compose -p itms-ci-demo down -v
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-evidence
+          path: |
+            backend/target-completion/surefire-reports/
+            backend/target-completion/failsafe-reports/
+            output/verification/

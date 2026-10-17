@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.List;
 import java.util.Map;
 
@@ -52,14 +53,14 @@ public class AlertController {
     @PutMapping("/api/alert/resolve/{id}")
     public Result<String> resolveAlert(@PathVariable Long id,
                                        @RequestParam(defaultValue = "system") String handler) {
-        alertService.resolveAlert(id, handler);
+        alertService.resolveAlert(id, SecurityContextHolder.getContext().getAuthentication().getName());
         return Result.success("告警已处理");
     }
 
     @PostMapping("/api/alerts/{id}/process")
     public Result<String> resolveAlertNew(@PathVariable Long id,
                                           @RequestParam(defaultValue = "system") String handler) {
-        alertService.resolveAlert(id, handler);
+        alertService.resolveAlert(id, SecurityContextHolder.getContext().getAuthentication().getName());
         return Result.success("告警已处理");
     }
 

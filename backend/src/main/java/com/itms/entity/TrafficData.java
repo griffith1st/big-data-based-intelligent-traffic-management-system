@@ -1,6 +1,7 @@
 package com.itms.entity;
 
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,7 +18,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "traffic_data", indexes = {
+@Table(name = "traffic_data", uniqueConstraints = @UniqueConstraint(name = "uq_traffic_data_event_id", columnNames = "event_id"), indexes = {
     @Index(name = "idx_intersection_time", columnList = "intersection_id,record_time"),
     @Index(name = "idx_record_time", columnList = "record_time")
 })
@@ -26,6 +27,15 @@ public class TrafficData {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    /** Stable source event identity, shared across transport retries and fallback. */
+    @Column(name = "event_id", length = 64)
+    private String eventId;
+
+    /** Server-derived fingerprint of original business input, never an API field. */
+    @JsonIgnore
+    @Column(name = "payload_hash", length = 64)
+    private String payloadHash;
 
     /** 路口/路段编号 */
     @Column(name = "intersection_id", nullable = false, length = 50)
@@ -43,7 +53,7 @@ public class TrafficData {
     @Column(nullable = false)
     private Double latitude;
 
-    /** 车流量（辆/小时） */
+    /** 当前采样数量（辆）；采样窗口由采集源约定 */
     @Column(name = "vehicle_count", nullable = false)
     private Integer vehicleCount;
 
@@ -67,7 +77,7 @@ public class TrafficData {
     @Column(name = "record_time", nullable = false)
     private LocalDateTime recordTime;
 
-    /** 数据来源: SENSOR(传感器), CAMERA(摄像头), GPS(定位) */
+    /** 数据来源: SIMULATOR(模拟器), MANUAL(人工), SENSOR/CAMERA/GPS, UNKNOWN(未声明) */
     @Column(name = "data_source", length = 20)
     private String dataSource;
 

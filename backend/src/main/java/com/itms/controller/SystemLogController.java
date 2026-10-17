@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.data.domain.Page;
 
 import java.util.List;
 import java.util.Map;
@@ -25,13 +26,14 @@ public class SystemLogController {
     public Result<List<SystemLog>> getLogs(
             @RequestParam(required = false) String logType,
             @RequestParam(required = false) Long userId) {
-        if (userId != null) {
-            return Result.success(systemLogService.getLogsByUser(userId));
-        }
-        if (logType != null && !logType.isBlank()) {
-            return Result.success(systemLogService.getLogsByType(logType));
-        }
-        return Result.success(systemLogService.getAllLogs());
+        return Result.success(systemLogService.search(logType, userId, 0, 100).getContent());
+    }
+
+    @GetMapping("/page")
+    public Result<Page<SystemLog>> page(@RequestParam(required=false) String logType,
+            @RequestParam(required=false) Long userId,
+            @RequestParam(defaultValue="0") int page, @RequestParam(defaultValue="20") int size) {
+        return Result.success(systemLogService.search(logType, userId, page, size));
     }
 
     @GetMapping("/summary")

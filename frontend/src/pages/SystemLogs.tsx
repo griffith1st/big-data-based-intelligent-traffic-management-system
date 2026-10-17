@@ -1,30 +1,20 @@
-﻿import React, { useEffect, useState } from 'react';
-import { Card, Table, Tag, Button, Space, Spin, message, Row, Col, Statistic, Select } from 'antd';
+import React, { useState } from 'react';
+import { Card, Table, Tag, Button, Space, Row, Col, Statistic, Select } from 'antd';
 import { FileTextOutlined, LoginOutlined, CodeOutlined, WarningOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import ReactEChartsCore from 'echarts-for-react';
 import { logApi } from '../services/api';
+import { useResource } from '../services/useResource';
+import ResourceStatus from '../components/ResourceStatus';
 
 const SystemLogs: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-  const [logs, setLogs] = useState<any[]>([]);
   const [filterType, setFilterType] = useState<string>('');
-
-  const fetchLogs = async () => {
-    setLoading(true);
-    try {
-      const res = await logApi.getList();
-      if (res.code === 200) {
-        setLogs(res.data || []);
-      } else {
-        message.error(res.message || '获取日志失败');
-      }
-    } catch (error: any) {
-      message.error(error.message || '获取日志失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-  useEffect(() => { fetchLogs(); }, []);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const resource = useResource(signal => logApi.getPage({ logType: filterType || undefined, page: page - 1, size: pageSize }, signal).then(r => r.data), [filterType, page, pageSize]);
+  const aggregate = useResource(signal => logApi.getSummary(signal).then(r => r.data));
+  const logs = resource.data?.content || [];
+  const summary = aggregate.data;
+  const fetchLogs = () => { resource.reload(); aggregate.reload(); };
 
   // 日志类型分布
   const typePieOption = {
@@ -35,39 +25,36 @@ const SystemLogs: React.FC = () => {
         type: 'pie',
         radius: ['40%', '70%'],
         data: [
-          { name: '登录日志', value: logs.filter((l) => l.logType === 'LOGIN').length, itemStyle: { color: '#1677ff' } },
-          { name: '操作日志', value: logs.filter((l) => l.logType === 'OPERATION').length, itemStyle: { color: '#52c41a' } },
-          { name: '系统日志', value: logs.filter((l) => l.logType === 'SYSTEM').length, itemStyle: { color: '#faad14' } },
-          { name: '错误日志', value: logs.filter((l) => l.logType === 'ERROR').length, itemStyle: { color: '#ff4d4f' } },
+          { name: '登录日志', value: summary?.byType?.LOGIN || 0, itemStyle: { color: '#1677ff' } },
+          { name: '操作日志', value: summary?.byType?.OPERATION || 0, itemStyle: { color: '#52c41a' } },
+          { name: '系统日志', value: summary?.byType?.SYSTEM || 0, itemStyle: { color: '#faad14' } },
+          { name: '错误日志', value: summary?.byType?.ERROR || 0, itemStyle: { color: '#ff4d4f' } },
         ],
         label: { show: true, formatter: '{b}\n{d}%' },
       },
     ],
   };
 
-  const trendBuckets = logs.reduce((acc: Record<string, number>, log: any) => {
-    const key = log.createdAt ? new Date(log.createdAt).toLocaleDateString([], { month: '2-digit', day: '2-digit' }) : '-';
-    acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
+  const trendBuckets: Record<string, number> = summary?.byDay || {};
+  const trendDays = Object.keys(trendBuckets).sort();
 
   // 每日日志趋势
   const trendOption = {
     tooltip: { trigger: 'axis' as const },
-    xAxis: { type: 'category' as const, data: Object.keys(trendBuckets) },
+    xAxis: { type: 'category' as const, data: trendDays },
     yAxis: { type: 'value' as const, name: '日志数量' },
     series: [
       {
         name: '日志量',
         type: 'bar',
-        data: Object.values(trendBuckets),
+        data: trendDays.map(day => trendBuckets[day]),
         itemStyle: { color: '#1677ff', borderRadius: [4, 4, 0, 0] },
       },
       {
         name: '趋势',
         type: 'line',
         smooth: true,
-        data: Object.values(trendBuckets),
+        data: trendDays.map(day => trendBuckets[day]),
         lineStyle: { color: '#fa8c16', width: 2 },
         itemStyle: { color: '#fa8c16' },
         symbol: 'circle',
@@ -130,22 +117,22 @@ const SystemLogs: React.FC = () => {
     },
   ];
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
 
-  const errorCount = logs.filter((l) => l.status === 'FAILED').length;
-  const totalCount = logs.length;
+  const errorCount = summary?.failedCount ?? 0;
+  const totalCount = summary?.totalCount ?? 0;
 
   return (
     <div>
+      <ResourceStatus title="全量日志统计（趋势为最近7天）" resource={aggregate} />
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
           <Card><Statistic title="总日志量" value={totalCount} prefix={<FileTextOutlined />} valueStyle={{ color: '#1677ff' }} /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card><Statistic title="操作日志" value={logs.filter((l) => l.logType === 'OPERATION').length} prefix={<CodeOutlined />} valueStyle={{ color: '#52c41a' }} /></Card>
+          <Card><Statistic title="操作日志" value={summary?.byType?.OPERATION || 0} prefix={<CodeOutlined />} valueStyle={{ color: '#52c41a' }} /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <Card><Statistic title="登录日志" value={logs.filter((l) => l.logType === 'LOGIN').length} prefix={<LoginOutlined />} valueStyle={{ color: '#1677ff' }} /></Card>
+          <Card><Statistic title="登录日志" value={summary?.byType?.LOGIN || 0} prefix={<LoginOutlined />} valueStyle={{ color: '#1677ff' }} /></Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card>
@@ -161,12 +148,12 @@ const SystemLogs: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={12}>
-          <Card title="日志类型分布" bodyStyle={{ padding: 12 }}>
+          <Card title="日志类型分布" styles={{ body: { padding: 12 } }}>
             <ReactEChartsCore option={typePieOption} notMerge style={{ height: 300 }} />
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card title="日志趋势" bodyStyle={{ padding: 12 }}>
+          <Card title="日志趋势" styles={{ body: { padding: 12 } }}>
             <ReactEChartsCore option={trendOption} notMerge style={{ height: 300 }} />
           </Card>
         </Col>
@@ -182,7 +169,7 @@ const SystemLogs: React.FC = () => {
                   placeholder="按类型筛选"
                   style={{ width: 130 }}
                   value={filterType}
-                  onChange={setFilterType}
+                  onChange={value => { setFilterType(value); setPage(1); }}
                   options={[
                     { label: '全部', value: '' },
                     { label: '登录日志', value: 'LOGIN' },
@@ -195,13 +182,15 @@ const SystemLogs: React.FC = () => {
               </Space>
             }
           >
+            <ResourceStatus title="日志列表" resource={resource} />
             <Table
+              loading={resource.loading}
               columns={columns}
-              dataSource={filterType ? logs.filter((l) => l.logType === filterType) : logs}
+              dataSource={logs}
               rowKey="id"
               size="small"
               scroll={{ x: 1300, y: 400 }}
-              pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 条日志` }}
+              pagination={{ current: page, pageSize, total: resource.data?.totalElements || 0, onChange: (next, size) => { setPage(size !== pageSize ? 1 : next); setPageSize(size); }, showSizeChanger: true, showTotal: (t) => `共 ${t} 条日志` }}
             />
           </Card>
         </Col>

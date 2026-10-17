@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
     phone VARCHAR(20),
     role VARCHAR(30) NOT NULL DEFAULT 'TRAFFIC_MANAGER',
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    auth_version BIGINT NOT NULL DEFAULT 0,
     district VARCHAR(100),
     avatar_url VARCHAR(500),
     last_login_time TIMESTAMP,
@@ -16,6 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS traffic_data (
     id BIGSERIAL PRIMARY KEY,
+    event_id VARCHAR(64),
+    payload_hash VARCHAR(64),
     intersection_id VARCHAR(50) NOT NULL,
     intersection_name VARCHAR(200),
     longitude DOUBLE PRECISION NOT NULL,
@@ -32,6 +35,7 @@ CREATE TABLE IF NOT EXISTS traffic_data (
 
 CREATE INDEX IF NOT EXISTS idx_traffic_intersection_time ON traffic_data(intersection_id, record_time);
 CREATE INDEX IF NOT EXISTS idx_traffic_record_time ON traffic_data(record_time);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_traffic_data_event_id ON traffic_data(event_id);
 
 CREATE TABLE IF NOT EXISTS traffic_predictions (
     id BIGSERIAL PRIMARY KEY,
@@ -63,6 +67,10 @@ CREATE TABLE IF NOT EXISTS traffic_signals (
     optimization_status VARCHAR(20) DEFAULT 'PENDING',
     strategy VARCHAR(20) DEFAULT 'FIXED',
     applied_at TIMESTAMP,
+    candidate_green_duration INTEGER,
+    candidate_yellow_duration INTEGER,
+    candidate_cycle_duration INTEGER,
+    candidate_strategy VARCHAR(20),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -78,6 +86,10 @@ CREATE TABLE IF NOT EXISTS traffic_alerts (
     latitude DOUBLE PRECISION,
     status VARCHAR(20) NOT NULL DEFAULT 'UNREAD',
     handler VARCHAR(50),
+    active_key VARCHAR(160),
+    direction VARCHAR(20),
+    source VARCHAR(20),
+    last_seen_at TIMESTAMP,
     handled_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -103,6 +115,10 @@ CREATE TABLE IF NOT EXISTS route_plans (
     carbon_emission DOUBLE PRECISION,
     intersections TEXT,
     route_edges TEXT,
+    algorithm VARCHAR(30),
+    traffic_data_status VARCHAR(20),
+    sampled_intersection_count INTEGER,
+    sampled_direction_count INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -126,29 +142,17 @@ CREATE INDEX IF NOT EXISTS idx_log_user ON system_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_log_time ON system_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_log_type ON system_logs(log_type);
 
-INSERT INTO users (username, password, real_name, email, role, enabled, district)
-VALUES
-('admin', '123456', '系统管理员', 'admin@itms.com', 'ADMIN', TRUE, '全城'),
-('manager1', '123456', '张三', 'zhangsan@itms.com', 'TRAFFIC_MANAGER', TRUE, '朝阳区'),
-('manager2', '123456', '李四', 'lisi@itms.com', 'TRAFFIC_MANAGER', TRUE, '海淀区'),
-('driver1', '123456', '王五', 'wangwu@itms.com', 'DRIVER', TRUE, '朝阳区'),
-('driver2', '123456', '赵六', 'zhaoliu@itms.com', 'DRIVER', TRUE, '海淀区')
-ON CONFLICT (username) DO UPDATE SET
-    password = EXCLUDED.password,
-    real_name = EXCLUDED.real_name,
-    email = EXCLUDED.email,
-    role = EXCLUDED.role,
-    enabled = EXCLUDED.enabled,
-    district = EXCLUDED.district,
-    updated_at = CURRENT_TIMESTAMP;
+-- Accounts are created by DefaultUserInitializer with BCrypt and never reset by SQL.
+-- Signal rows are initialized transactionally by the service with valid phase timings.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_signal_intersection_direction
+    ON traffic_signals(intersection_id, direction);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_alert_active_key ON traffic_alerts(active_key);
+CREATE INDEX IF NOT EXISTS idx_alert_condition_history
+    ON traffic_alerts(source, intersection_id, direction, last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_traffic_latest_direction
+    ON traffic_data(intersection_id, direction, record_time DESC, id DESC);
 
-INSERT INTO traffic_signals (intersection_id, direction, green_duration, red_duration, yellow_duration, cycle_duration, phase_id, optimization_status, strategy)
-VALUES
-('INT-001', 'NORTH', 45, 45, 5, 95, 1, 'APPLIED', 'FIXED'),
-('INT-001', 'SOUTH', 45, 45, 5, 95, 1, 'APPLIED', 'FIXED'),
-('INT-001', 'EAST', 30, 60, 5, 95, 2, 'APPLIED', 'FIXED'),
-('INT-001', 'WEST', 30, 60, 5, 95, 2, 'APPLIED', 'FIXED'),
-('INT-002', 'NORTH', 40, 50, 5, 95, 1, 'APPLIED', 'FIXED'),
-('INT-002', 'SOUTH', 40, 50, 5, 95, 1, 'APPLIED', 'FIXED'),
-('INT-002', 'EAST', 35, 55, 5, 95, 2, 'APPLIED', 'FIXED'),
-('INT-002', 'WEST', 35, 55, 5, 95, 2, 'APPLIED', 'FIXED');
+CREATE TABLE IF NOT EXISTS traffic_ingestion_receipts (
+    event_key VARCHAR(64) PRIMARY KEY,
+    received_at TIMESTAMP NOT NULL
+);

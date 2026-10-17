@@ -13,10 +13,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.UUID;
+import java.util.Collections;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -60,7 +68,6 @@ public class TrafficDataServiceImpl implements TrafficDataService {
     }
 
     private List<Map<String, Object>> loadRealTimeData() {
-        ensureSeedData();
         List<Object[]> rawData = trafficDataRepository.findRealTimeCongestion();
         List<Map<String, Object>> result = new ArrayList<>();
 
@@ -110,19 +117,24 @@ public class TrafficDataServiceImpl implements TrafficDataService {
 
     @Override
     public List<TrafficData> getHistoryData(String intersectionId, int minutes) {
-        LocalDateTime since = LocalDateTime.now().minusMinutes(minutes);
-        return trafficDataRepository.findRecentByIntersection(intersectionId, since);
+        TrafficValidation.requireIntersection(intersectionId);
+        if (minutes < 1 || minutes > 2880) throw new IllegalArgumentException("minutes must be between 1 and 2880");
+        return chronological(trafficDataRepository.findRecentBounded(intersectionId,
+                LocalDateTime.now().minusMinutes(minutes), 1000));
     }
 
     @Override
     public List<TrafficData> getHistoryData(String intersectionId, Integer limit) {
-        int safeLimit = limit == null || limit <= 0 ? 100 : Math.min(limit, 1000);
-        List<TrafficData> rows = trafficDataRepository
-                .findRecentByIntersection(intersectionId, LocalDateTime.now().minusDays(2));
-        return rows.stream()
-                .sorted(Comparator.comparing(TrafficData::getRecordTime))
-                .skip(Math.max(0, rows.size() - safeLimit))
-                .toList();
+        TrafficValidation.requireIntersection(intersectionId);
+        int requested = limit == null ? 100 : limit;
+        if (requested < 1 || requested > 1000) throw new IllegalArgumentException("limit must be between 1 and 1000");
+        return chronological(trafficDataRepository.findRecentBounded(intersectionId,
+                LocalDateTime.now().minusDays(2), requested));
+    }
+
+    private List<TrafficData> chronological(List<TrafficData> rows) {
+        return rows.stream().sorted(Comparator.comparing(TrafficData::getRecordTime)
+                .thenComparing(TrafficData::getId)).toList();
     }
 
     @Override
@@ -189,7 +201,19 @@ public class TrafficDataServiceImpl implements TrafficDataService {
     }
 
     @Override
+    @Transactional
     public TrafficData saveTrafficData(TrafficData data) {
+        TrafficValidation.validateNewRecord(data);
+        prepareEventId(data);
+        String fingerprint = payloadFingerprint(data);
+        trafficDataRepository.lockEventId(data.getEventId());
+        var existing = trafficDataRepository.findByEventId(data.getEventId());
+        if (existing.isPresent()) {
+            if (!fingerprint.equals(existing.get().getPayloadHash()))
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "eventId already exists with different business content");
+            return existing.get();
+        }
+        data.setPayloadHash(fingerprint);
         normalize(data);
         TrafficData saved = trafficDataRepository.save(data);
         try {
@@ -203,36 +227,48 @@ public class TrafficDataServiceImpl implements TrafficDataService {
     }
 
     @Override
+    @Transactional
     public List<TrafficData> batchSave(List<TrafficData> dataList) {
-        List<TrafficData> savedList = new ArrayList<>();
-        for (TrafficData data : dataList) {
-            savedList.add(saveTrafficData(data));
-        }
+        if (dataList == null || dataList.isEmpty() || dataList.size() > 500)
+            throw new IllegalArgumentException("batch must contain between 1 and 500 records");
+        dataList.forEach(TrafficValidation::validateNewRecord);
+        dataList.forEach(this::prepareEventId);
+        // Lock all event IDs in one order before taking any alert condition locks.
+        dataList.stream().map(TrafficData::getEventId).distinct().sorted().forEach(trafficDataRepository::lockEventId);
+        List<Integer> order = new ArrayList<>();
+        for (int index = 0; index < dataList.size(); index++) order.add(index);
+        order.sort(Comparator.comparing((Integer index) -> dataList.get(index).getIntersectionId())
+                .thenComparing(index -> dataList.get(index).getDirection())
+                .thenComparing(index -> dataList.get(index).getEventId()));
+        List<TrafficData> savedList = new ArrayList<>(Collections.nCopies(dataList.size(), null));
+        for (int index : order) savedList.set(index, saveTrafficData(dataList.get(index)));
         return savedList;
     }
 
-    private void ensureSeedData() {
-        if (trafficDataRepository.count() > 0) {
-            return;
-        }
-        LocalDateTime now = LocalDateTime.now();
-        for (TrafficNetwork.Intersection intersection : TrafficNetwork.INTERSECTIONS.values()) {
-            for (String direction : TrafficNetwork.DIRECTIONS) {
-                TrafficData data = TrafficData.builder()
-                        .intersectionId(intersection.intersectionId())
-                        .intersectionName(intersection.intersectionName())
-                        .longitude(intersection.longitude())
-                        .latitude(intersection.latitude())
-                        .direction(direction)
-                        .vehicleCount(Math.max(80, intersection.baseFlow() / 2))
-                        .avgSpeed(42.0)
-                        .occupancyRate(35.0)
-                        .congestionLevel(0)
-                        .dataSource("SIMULATOR")
-                        .recordTime(now)
-                        .build();
-                trafficDataRepository.save(data);
+    private void prepareEventId(TrafficData data) {
+        if (data.getEventId() == null) data.setEventId(UUID.randomUUID().toString());
+        if (!data.getEventId().matches("[A-Za-z0-9][A-Za-z0-9:_-]{0,63}"))
+            throw new IllegalArgumentException("eventId must contain 1-64 letters, digits, colon, underscore or hyphen");
+    }
+
+    private String payloadFingerprint(TrafficData data) {
+        // Fingerprint original input, before deriving occupancy/congestion/time.
+        // Replaying the same omitted timestamp must not acquire a new identity.
+        Object[] fields = {data.getIntersectionId(), data.getDirection(), data.getVehicleCount(),
+                data.getAvgSpeed(), data.getOccupancyRate(), data.getCongestionLevel(), data.getRecordTime(), data.getDataSource()};
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update("itms-traffic-payload:v1".getBytes(StandardCharsets.UTF_8));
+            for (Object field : fields) {
+                if (field == null) { digest.update((byte) 0); continue; }
+                digest.update((byte) 1);
+                byte[] value = field.toString().getBytes(StandardCharsets.UTF_8);
+                digest.update(ByteBuffer.allocate(4).putInt(value.length).array());
+                digest.update(value);
             }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 unavailable", ex);
         }
     }
 
@@ -247,7 +283,7 @@ public class TrafficDataServiceImpl implements TrafficDataService {
             data.setRecordTime(LocalDateTime.now());
         }
         if (data.getDataSource() == null || data.getDataSource().isBlank()) {
-            data.setDataSource("KAFKA");
+            data.setDataSource("UNKNOWN");
         }
         if (data.getOccupancyRate() == null) {
             data.setOccupancyRate(Math.min(100.0, Math.max(5.0, data.getVehicleCount() / 14.0)));

@@ -12,6 +12,8 @@ import com.itms.service.SystemLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.Locale;
 
 import java.time.LocalDateTime;
 import java.util.ArrayDeque;
@@ -36,13 +38,19 @@ public class RoutePlanServiceImpl implements RoutePlanService {
     private final SystemLogService systemLogService;
 
     @Override
+    @Transactional
     public RoutePlan planRoute(Double startLng, Double startLat,
                                Double endLng, Double endLat, String strategy, Long userId) {
+        TrafficValidation.requireRange(startLng, -180, 180, "startLng", true);
+        TrafficValidation.requireRange(endLng, -180, 180, "endLng", true);
+        TrafficValidation.requireRange(startLat, -90, 90, "startLat", true);
+        TrafficValidation.requireRange(endLat, -90, 90, "endLat", true);
         return planRouteByIntersection(nearestIntersection(startLng, startLat),
                 nearestIntersection(endLng, endLat), strategy, userId);
     }
 
     @Override
+    @Transactional
     public RoutePlan planRouteByIntersection(String startIntersectionId, String endIntersectionId,
                                              String strategy, Long userId) {
         TrafficNetwork.Intersection start = TrafficNetwork.intersection(startIntersectionId);
@@ -52,7 +60,8 @@ public class RoutePlanServiceImpl implements RoutePlanService {
         }
 
         String normalizedStrategy = normalizeStrategy(strategy);
-        Map<String, Double> congestionByIntersection = currentCongestionByIntersection();
+        TrafficSnapshot snapshot = currentTrafficSnapshot();
+        Map<String, Double> congestionByIntersection = snapshot.congestion();
         List<String> pathIds = dijkstra(startIntersectionId, endIntersectionId,
                 normalizedStrategy, congestionByIntersection);
         if (pathIds.isEmpty()) {
@@ -81,7 +90,9 @@ public class RoutePlanServiceImpl implements RoutePlanService {
             double dynamicWeight = dynamicCongestionWeight(edge, congestionByIntersection);
             double avgCongestion = Math.max(congestionByIntersection.getOrDefault(edge.from(), 0.0),
                     congestionByIntersection.getOrDefault(edge.to(), 0.0));
-            int congestionLevel = (int) Math.round(avgCongestion);
+            int sampledEndpoints = (congestionByIntersection.containsKey(edge.from()) ? 1 : 0)
+                    + (congestionByIntersection.containsKey(edge.to()) ? 1 : 0);
+            Integer congestionLevel = sampledEndpoints == 2 ? (int) Math.round(avgCongestion) : null;
             double estimatedTime = edge.baseTimeMin() * dynamicWeight + edge.trafficLightCount() * 0.5;
             double estimatedCarbon = edge.distanceKm() * 120.0 * edge.carbonFactor() * dynamicWeight
                     + edge.trafficLightCount() * 8.0;
@@ -103,7 +114,9 @@ public class RoutePlanServiceImpl implements RoutePlanService {
             item.put("carbonFactor", edge.carbonFactor());
             item.put("trafficLightCount", edge.trafficLightCount());
             item.put("congestionLevel", congestionLevel);
-            item.put("congestionLevelText", TrafficDataServiceImpl.congestionText(congestionLevel));
+            item.put("congestionLevelText", congestionLevel == null ? "UNKNOWN" : TrafficDataServiceImpl.congestionText(congestionLevel));
+            item.put("trafficDataStatus", sampledEndpoints == 2 ? "LIVE" : sampledEndpoints == 1 ? "PARTIAL" : "UNAVAILABLE");
+            item.put("sampledEndpointCount", sampledEndpoints);
             routeEdges.add(item);
         }
 
@@ -117,6 +130,11 @@ public class RoutePlanServiceImpl implements RoutePlanService {
                 .startLat(start.latitude())
                 .endLng(end.longitude())
                 .endLat(end.latitude())
+                .algorithm("DIJKSTRA")
+                .trafficDataStatus(snapshot.directionCount() == 0 ? "UNAVAILABLE" :
+                        snapshot.directionCount() == TrafficNetwork.INTERSECTIONS.size() * TrafficNetwork.DIRECTIONS.size() ? "LIVE" : "PARTIAL")
+                .sampledIntersectionCount(congestionByIntersection.size())
+                .sampledDirectionCount(snapshot.directionCount())
                 .strategy(normalizedStrategy)
                 .routePoints(toJson(path))
                 .intersections(toJson(path))
@@ -134,15 +152,16 @@ public class RoutePlanServiceImpl implements RoutePlanService {
 
     @Override
     public List<RoutePlan> getUserRoutes(Long userId) {
-        return routePlanRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        return routePlanRepository.findTop500ByUserIdOrderByCreatedAtDescIdDesc(userId);
     }
 
     @Override
     public List<RoutePlan> getAllRoutes() {
-        return routePlanRepository.findAll();
+        return routePlanRepository.findTop500ByOrderByCreatedAtDescIdDesc();
     }
 
     @Override
+    @Transactional
     public RoutePlan planGreenRoute(Double startLng, Double startLat,
                                     Double endLng, Double endLat, Long userId) {
         return planRoute(startLng, startLat, endLng, endLat, "LOW_CARBON", userId);
@@ -185,17 +204,19 @@ public class RoutePlanServiceImpl implements RoutePlanService {
         Map<String, Double> distances = new HashMap<>();
         Map<String, String> previous = new HashMap<>();
         Set<String> visited = new HashSet<>();
-        PriorityQueue<String> queue = new PriorityQueue<>(
-                Comparator.comparingDouble(id -> distances.getOrDefault(id, Double.MAX_VALUE)));
+        PriorityQueue<RouteCandidate> queue = new PriorityQueue<>(
+                Comparator.comparingDouble(RouteCandidate::cost).thenComparing(RouteCandidate::intersectionId));
 
         for (String id : TrafficNetwork.INTERSECTIONS.keySet()) {
             distances.put(id, Double.MAX_VALUE);
         }
         distances.put(start, 0.0);
-        queue.add(start);
+        queue.add(new RouteCandidate(start, 0.0));
 
         while (!queue.isEmpty()) {
-            String current = queue.poll();
+            RouteCandidate candidateEntry = queue.poll();
+            String current = candidateEntry.intersectionId();
+            if (candidateEntry.cost() > distances.get(current)) continue;
             if (!visited.add(current)) {
                 continue;
             }
@@ -208,7 +229,7 @@ public class RoutePlanServiceImpl implements RoutePlanService {
                 if (candidate < distances.getOrDefault(next, Double.MAX_VALUE)) {
                     distances.put(next, candidate);
                     previous.put(next, current);
-                    queue.add(next);
+                    queue.add(new RouteCandidate(next, candidate));
                 }
             }
         }
@@ -234,14 +255,9 @@ public class RoutePlanServiceImpl implements RoutePlanService {
         double congestionWeight = dynamicCongestionWeight(edge, congestionByIntersection);
         return switch (strategy) {
             case "FASTEST" -> edge.baseTimeMin() * congestionWeight + edge.trafficLightCount() * 0.5;
-            case "GREENEST", "LOW_CARBON" -> edge.distanceKm() * edge.carbonFactor() * congestionWeight
-                    + edge.trafficLightCount() * 0.2;
-            default -> {
-                double level = Math.max(congestionByIntersection.getOrDefault(edge.from(), 0.0),
-                        congestionByIntersection.getOrDefault(edge.to(), 0.0));
-                double factor = 1.0 + level * 0.2;
-                yield edge.distanceKm() * factor;
-            }
+            case "GREENEST", "LOW_CARBON" -> edge.distanceKm() * 120.0 * edge.carbonFactor() * congestionWeight
+                    + edge.trafficLightCount() * 8.0;
+            default -> edge.distanceKm();
         };
     }
 
@@ -249,64 +265,33 @@ public class RoutePlanServiceImpl implements RoutePlanService {
         if (strategy == null || strategy.isBlank()) {
             return "SHORTEST";
         }
-        String upper = strategy.toUpperCase();
+        String upper = strategy.toUpperCase(Locale.ROOT);
+        if (!Set.of("SHORTEST", "FASTEST", "GREENEST", "LOW_CARBON").contains(upper))
+            throw new IllegalArgumentException("Unsupported route strategy: " + strategy);
         return "GREENEST".equals(upper) ? "LOW_CARBON" : upper;
     }
 
-    /** 返回连续拥堵平均值（0.0-3.0），确保每次查询都能反映真实交通数据变化 */
-    private Map<String, Double> currentCongestionByIntersection() {
-        Map<String, Double> result = new HashMap<>();
+    private record RouteCandidate(String intersectionId, double cost) {}
+    private record TrafficSnapshot(Map<String, Double> congestion, int directionCount) {}
 
-        // 优先使用原生SQL（返回max和avg，使用avg作为连续拥堵值）
-        List<Object[]> nativeRows = trafficDataRepository.findCurrentCongestionNative();
-        if (!nativeRows.isEmpty()) {
-            for (Object[] row : nativeRows) {
-                String intersectionId = (String) row[0];
-                double avgLevel = row[2] == null ? 0.0 : ((Number) row[2]).doubleValue();
-                result.put(intersectionId, avgLevel);
-            }
-            log.info("Route planning using native congestion (avg): {} intersections sampled", result.size());
-            return result;
-        }
-
-        // 回退：JPQL查询（使用平均值而非最大值，提高对拥堵变化的敏感度）
-        Map<String, Double> sumMap = new HashMap<>();
-        Map<String, Integer> cntMap = new HashMap<>();
+    /** Every direction has its own latest timestamp; stale/missing samples use static road weights. */
+    private TrafficSnapshot currentTrafficSnapshot() {
+        Map<String, Double> sums = new HashMap<>();
+        Map<String, Integer> counts = new HashMap<>();
+        int directionCount = 0;
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(5);
         for (TrafficData data : trafficDataRepository.findLatestTrafficData()) {
+            if (!TrafficNetwork.INTERSECTIONS.containsKey(data.getIntersectionId())
+                    || !TrafficNetwork.DIRECTIONS.contains(data.getDirection())
+                    || data.getRecordTime() == null || data.getRecordTime().isBefore(cutoff)) continue;
             String id = data.getIntersectionId();
-            double level = data.getCongestionLevel() == null ? 0.0 : data.getCongestionLevel();
-            sumMap.merge(id, level, Double::sum);
-            cntMap.merge(id, 1, Integer::sum);
+            sums.merge(id, data.getCongestionLevel() == null ? 0.0 : data.getCongestionLevel().doubleValue(), Double::sum);
+            counts.merge(id, 1, Integer::sum);
+            directionCount++;
         }
-        if (!sumMap.isEmpty()) {
-            for (String id : sumMap.keySet()) {
-                result.put(id, sumMap.get(id) / cntMap.get(id));
-            }
-            log.info("Route planning using JPQL congestion (avg): {} intersections sampled", result.size());
-            return result;
-        }
-
-        // 数据库完全无数据时，按时间生成动态估算拥堵等级
-        log.warn("No traffic data in database, using time-based congestion estimates");
-        LocalDateTime now = LocalDateTime.now();
-        int baseLevel = timeBasedCongestionLevel();
-        for (String id : TrafficNetwork.INTERSECTIONS.keySet()) {
-            int seed = id.hashCode() + now.getMinute() + now.getHour() * 60;
-            int variation = Math.abs(seed) % 4;
-            double level = Math.min(3.0, Math.max(0.0, baseLevel - 1.0 + variation));
-            result.put(id, level);
-        }
-        return result;
-    }
-
-    /** 根据当前时段估算基础拥堵等级：0=畅通, 1=轻度, 2=中度, 3=严重 */
-    private int timeBasedCongestionLevel() {
-        int hour = java.time.LocalTime.now().getHour();
-        if (hour >= 7 && hour < 9 || hour >= 17 && hour < 19) return 3;  // 高峰期
-        if (hour >= 9 && hour < 11 || hour >= 14 && hour < 17) return 1; // 平峰
-        if (hour >= 11 && hour < 14) return 2;  // 午间
-        if (hour >= 0 && hour < 5) return 0;    // 深夜
-        return 1;  // 其他时段轻度拥堵
+        Map<String, Double> averages = new HashMap<>();
+        sums.forEach((id, total) -> averages.put(id, total / counts.get(id)));
+        return new TrafficSnapshot(averages, directionCount);
     }
 
     /** 使用连续拥堵值插值计算动态权重，避免离散等级造成的阶梯效应 */

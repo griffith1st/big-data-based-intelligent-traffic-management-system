@@ -1,7 +1,9 @@
-﻿import React, { Suspense, lazy } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Spin } from 'antd';
+import React, { Suspense, lazy } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Spin, Result, Button } from 'antd';
 import MainLayout from './layouts/MainLayout';
+import { AuthProvider, useAuth } from './services/AuthContext';
+import { canAccessPath, getToken } from './services/session';
 
 const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -15,25 +17,28 @@ const SystemLogs = lazy(() => import('./pages/SystemLogs'));
 
 const Loading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-    <Spin size="large" tip="加载中..." />
+    <Spin size="large" /><span style={{ marginLeft: 12 }}>加载中...</span>
   </div>
 );
 
-// 简单的认证守卫
-const isAuthenticated = (): boolean => {
-  return !!localStorage.getItem('token');
-};
-
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  if (!isAuthenticated()) {
+  const { user, loading, error, refresh } = useAuth();
+  const location = useLocation();
+  if (!getToken()) {
     return <Navigate to="/login" replace />;
   }
+  if (loading) return <Loading />;
+  if (error) return <Result status="warning" title="身份验证暂未完成" subTitle={error} extra={<Button onClick={refresh}>重试</Button>} />;
+  if (!user) return <Navigate to="/login" replace />;
+  const path = '/' + location.pathname.split('/')[1];
+  if (path !== '/' && !canAccessPath(user.role, path)) return <Result status="403" title="403" subTitle="当前账号没有此页面的访问权限" extra={<a href="/dashboard">返回仪表盘</a>} />;
   return <>{children}</>;
 };
 
 const App: React.FC = () => {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <AuthProvider>
       <Suspense fallback={<Loading />}>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -58,6 +63,7 @@ const App: React.FC = () => {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Suspense>
+      </AuthProvider>
     </BrowserRouter>
   );
 };

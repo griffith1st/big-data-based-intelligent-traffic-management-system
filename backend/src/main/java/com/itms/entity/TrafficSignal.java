@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "traffic_signals")
+@Table(name = "traffic_signals", uniqueConstraints = @UniqueConstraint(name = "uq_signal_intersection_direction", columnNames = {"intersection_id", "direction"}))
 public class TrafficSignal {
 
     @Id
@@ -56,9 +56,19 @@ public class TrafficSignal {
     @Column(name = "optimization_status", length = 20)
     private String optimizationStatus;
 
-    /** 优化策略: DQN, FIXED, ADAPTIVE */
+    /** 策略: FIXED, BALANCED, CONGESTION_FIRST, EMERGENCY_FIRST */
     @Column(name = "strategy", length = 20)
     private String strategy;
+
+    /** Candidate stays separate from the active simulation plan until apply. */
+    @Column(name = "candidate_green_duration")
+    private Integer candidateGreenDuration;
+    @Column(name = "candidate_yellow_duration")
+    private Integer candidateYellowDuration;
+    @Column(name = "candidate_cycle_duration")
+    private Integer candidateCycleDuration;
+    @Column(name = "candidate_strategy", length = 20)
+    private String candidateStrategy;
 
     /** 应用时间 */
     @Column(name = "applied_at")

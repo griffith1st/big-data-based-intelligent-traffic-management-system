@@ -2,7 +2,11 @@ package com.itms.service.impl;
 
 import com.itms.service.RedisAuthService;
 import com.itms.util.JwtUtil;
+import com.itms.security.LoginLockedException;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -32,10 +36,34 @@ public class RedisAuthServiceImpl implements RedisAuthService {
     private static final Duration FAILURE_WINDOW = Duration.ofMinutes(10);
     private static final DefaultRedisScript<Long> INCREMENT_FAILURE = new DefaultRedisScript<>("""
             local count = redis.call('INCR', KEYS[1])
-            if redis.call('PTTL', KEYS[1]) < 0 then
+            if count == 5 or redis.call('PTTL', KEYS[1]) < 0 then
                 redis.call('PEXPIRE', KEYS[1], ARGV[1])
             end
             return count
+            """, Long.class);
+
+    private static final DefaultRedisScript<Long> LOCK_REMAINING = new DefaultRedisScript<>("""
+            local count = tonumber(redis.call('GET', KEYS[1]) or '0')
+            if count < 5 then return 0 end
+            local ttl = redis.call('PTTL', KEYS[1])
+            if ttl < 0 then
+                redis.call('PEXPIRE', KEYS[1], ARGV[1])
+                ttl = tonumber(ARGV[1])
+            end
+            return math.max(1, math.ceil(ttl / 1000))
+            """, Long.class);
+    private static final DefaultRedisScript<Long> CLEAR_UNLOCKED_FAILURES = new DefaultRedisScript<>("""
+            local count = tonumber(redis.call('GET', KEYS[1]) or '0')
+            if count >= 5 then
+                local ttl = redis.call('PTTL', KEYS[1])
+                if ttl < 0 then
+                    redis.call('PEXPIRE', KEYS[1], ARGV[1])
+                    ttl = tonumber(ARGV[1])
+                end
+                return math.max(1, math.ceil(ttl / 1000))
+            end
+            redis.call('DEL', KEYS[1])
+            return 0
             """, Long.class);
 
     private final StringRedisTemplate redis;
@@ -43,7 +71,11 @@ public class RedisAuthServiceImpl implements RedisAuthService {
 
     @Override
     public boolean isTokenRevoked(String token) {
-        return token != null && Boolean.TRUE.equals(redis.hasKey(revokedKey(token)));
+        try {
+            return token != null && Boolean.TRUE.equals(redis.hasKey(revokedKey(token)));
+        } catch (RuntimeException e) {
+            throw unavailable(e);
+        }
     }
 
     @Override
@@ -51,14 +83,19 @@ public class RedisAuthServiceImpl implements RedisAuthService {
         if (token == null || token.isBlank()) {
             return;
         }
+        Claims claims;
         try {
-            Claims claims = jwtUtil.parseToken(token);
+            claims = jwtUtil.parseToken(token);
+        } catch (JwtException | IllegalArgumentException ignored) {
+            return; // Already-invalid tokens have no authentication value.
+        }
+        try {
             long remainingMs = claims.getExpiration().getTime() - System.currentTimeMillis();
             if (remainingMs > 0) {
                 redis.opsForValue().set(revokedKey(token), "1", remainingMs, TimeUnit.MILLISECONDS);
             }
-        } catch (RuntimeException ignored) {
-            // Invalid/expired JWTs already have no authentication value to revoke.
+        } catch (RuntimeException e) {
+            throw unavailable(e);
         }
     }
 
@@ -75,8 +112,25 @@ public class RedisAuthServiceImpl implements RedisAuthService {
     }
 
     @Override
+    public long loginRetryAfterSeconds(String username) {
+        try {
+            Long ttl = redis.execute(LOCK_REMAINING, List.of(failedKey(username)), Long.toString(FAILURE_WINDOW.toMillis()));
+            if (ttl == null) throw new IllegalStateException("Redis returned no lock state");
+            return ttl;
+        } catch (RuntimeException e) {
+            throw unavailable(e);
+        }
+    }
+
+    @Override
     public void clearLoginFailures(String username) {
-        redis.delete(failedKey(username));
+        Long retry = redis.execute(CLEAR_UNLOCKED_FAILURES, List.of(failedKey(username)), Long.toString(FAILURE_WINDOW.toMillis()));
+        if (retry == null) throw new IllegalStateException("Redis returned no lock state");
+        if (retry > 0) throw new LoginLockedException(retry);
+    }
+
+    private ResponseStatusException unavailable(RuntimeException cause) {
+        return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "认证状态服务暂时不可用，请稍后重试", cause);
     }
 
     private String revokedKey(String token) {

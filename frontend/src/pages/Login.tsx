@@ -1,8 +1,9 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Form, Input, Button, Card, message, Select } from 'antd';
+import { Form, Input, Button, Card, message } from 'antd';
 import { UserOutlined, LockOutlined, CarOutlined } from '@ant-design/icons';
 import { authApi } from '../services/api';
+import { normalizeUser, saveSession } from '../services/session';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -13,15 +14,16 @@ const Login: React.FC = () => {
     try {
       const res = await authApi.login(values.username, values.password);
       if (res.code === 200) {
-        localStorage.setItem('token', res.data.token);
-        localStorage.setItem('userInfo', JSON.stringify(res.data));
+        const user = normalizeUser(res.data);
+        if (!user || !res.data.token) throw new Error('登录响应缺少有效账号信息');
+        saveSession(res.data.token, user);
         message.success(`欢迎回来，${res.data.realName || res.data.username}`);
         navigate('/dashboard', { replace: true });
       } else {
         message.error(res.message || '登录失败');
       }
     } catch (error: any) {
-      message.error(error.response?.data?.message || '登录失败，请检查用户名和密码');
+      message.error(error.message || '登录失败，请检查用户名和密码');
     } finally {
       setLoading(false);
     }
@@ -39,7 +41,7 @@ const Login: React.FC = () => {
     >
       <Card
         style={{ width: 420, borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}
-        bodyStyle={{ padding: 40 }}
+        styles={{ body: { padding: 40 } }}
       >
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <CarOutlined style={{ fontSize: 48, marginBottom: 8, color: '#1677ff' }} />
@@ -55,20 +57,19 @@ const Login: React.FC = () => {
           name="login"
           onFinish={onFinish}
           size="large"
-          initialValues={{ username: 'admin', password: '123456' }}
         >
           <Form.Item
             name="username"
             rules={[{ required: true, message: '请输入用户名' }]}
           >
-            <Input prefix={<UserOutlined />} placeholder="用户名" />
+            <Input prefix={<UserOutlined />} placeholder="用户名" autoComplete="username" maxLength={50} />
           </Form.Item>
 
           <Form.Item
             name="password"
             rules={[{ required: true, message: '请输入密码' }]}
           >
-            <Input.Password prefix={<LockOutlined />} placeholder="密码" />
+            <Input.Password prefix={<LockOutlined />} placeholder="密码" autoComplete="current-password" maxLength={72} />
           </Form.Item>
 
           <Form.Item>
@@ -87,8 +88,7 @@ const Login: React.FC = () => {
             paddingTop: 16,
           }}
         >
-          <p style={{ margin: '4px 0' }}>测试账号: admin / 123456 (管理员)</p>
-          <p style={{ margin: '4px 0' }}>driver1 / 123456 (驾驶员)</p>
+          <p style={{ margin: '4px 0' }}>请使用管理员提供的账号登录；演示环境账号见部署文档。</p>
         </div>
       </Card>
     </div>

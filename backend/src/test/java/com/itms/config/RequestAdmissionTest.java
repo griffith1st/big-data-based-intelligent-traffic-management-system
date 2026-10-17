@@ -3,6 +3,11 @@ package com.itms.config;
 import com.itms.common.GlobalExceptionHandler;
 import com.itms.service.RedisAuthService;
 import com.itms.util.JwtUtil;
+import com.itms.repository.UserRepository;
+import com.itms.entity.User;
+import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
+import static org.mockito.Mockito.*;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -27,13 +32,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(controllers = RequestAdmissionTest.Probe.class,
-        properties = "itms.concurrency.max-in-flight=1")
+        properties = {"itms.concurrency.max-in-flight=1", "itms.cors.allowed-origins=http://localhost:3000"})
 @Import({SecurityConfig.class, GlobalExceptionHandler.class, RequestAdmissionTest.Probe.class,
         RequestAdmissionTest.Metrics.class})
 class RequestAdmissionTest {
     @Autowired MockMvc mvc;
     @MockBean JwtUtil jwt;
     @MockBean RedisAuthService redisAuth;
+    @MockBean UserRepository users;
+    @BeforeEach void identity() {
+        var fixture = com.itms.support.Fixtures.jwt(60_000);
+        when(jwt.parseToken("fixture-token")).thenReturn(fixture.parseToken(fixture.generateToken(1L, "admin", "ADMIN")));
+        when(users.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).username("admin").role("ADMIN").enabled(true).build()));
+    }
 
     @TestConfiguration
     static class Metrics {
@@ -72,13 +83,13 @@ class RequestAdmissionTest {
         probe.entered = new CountDownLatch(1);
         probe.release = new CountDownLatch(1);
         var executor = Executors.newSingleThreadExecutor();
-        var held = executor.submit(() -> mvc.perform(get("/api/auth/hold")).andReturn());
+        var held = executor.submit(() -> mvc.perform(get("/api/auth/hold").header("Authorization", "Bearer fixture-token")).andReturn());
         try {
             assertThat(probe.entered.await(3, TimeUnit.SECONDS)).isTrue();
-            mvc.perform(get("/api/auth/ping").header("Origin", "http://localhost:3000"))
+            mvc.perform(get("/api/auth/ping").header("Authorization", "Bearer fixture-token").header("Origin", "http://localhost:3000"))
                     .andExpect(status().isTooManyRequests())
                     .andExpect(header().string("Retry-After", "1"))
-                    .andExpect(header().string("Access-Control-Allow-Origin", "*"))
+                    .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:3000"))
                     .andExpect(header().string("Access-Control-Expose-Headers", "Retry-After"))
                     .andExpect(jsonPath("$.code").value(429));
             mvc.perform(options("/api/auth/ping").header("Origin", "http://localhost:3000")
@@ -89,16 +100,23 @@ class RequestAdmissionTest {
             executor.shutdown();
         }
         assertThat(held.get(3, TimeUnit.SECONDS).getResponse().getStatus()).isEqualTo(200);
-        mvc.perform(get("/api/auth/ping")).andExpect(status().isOk());
+        mvc.perform(get("/api/auth/ping").header("Authorization", "Bearer fixture-token")).andExpect(status().isOk());
     }
 
     @Test void releasesAdmissionWhenControllerFails() throws Exception {
-        mvc.perform(get("/api/auth/fail")).andExpect(status().isBadRequest());
-        mvc.perform(get("/api/auth/ping")).andExpect(status().isOk());
+        mvc.perform(get("/api/auth/fail").header("Authorization", "Bearer fixture-token")).andExpect(status().isInternalServerError());
+        mvc.perform(get("/api/auth/ping").header("Authorization", "Bearer fixture-token")).andExpect(status().isOk());
+    }
+
+    @Test void rejectsCorsOriginsOutsideConfiguredList() throws Exception {
+        mvc.perform(options("/api/auth/ping").header("Origin", "https://unlisted.example")
+                        .header("Access-Control-Request-Method", "GET"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
     }
 
     @Test void preservesServiceUnavailableInsteadOfMisclassifyingAsBadRequest() throws Exception {
-        mvc.perform(get("/api/auth/busy"))
+        mvc.perform(get("/api/auth/busy").header("Authorization", "Bearer fixture-token"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Retry-After", "1"))
                 .andExpect(jsonPath("$.code").value(503))
@@ -107,7 +125,7 @@ class RequestAdmissionTest {
 
     @Test void databaseTimeoutOrExhaustedPoolIsServerOverloadNotClientError() throws Exception {
         for (String endpoint : new String[]{"/api/auth/db-timeout", "/api/auth/db-connection"}) {
-            mvc.perform(get(endpoint)).andExpect(status().isServiceUnavailable())
+            mvc.perform(get(endpoint).header("Authorization", "Bearer fixture-token")).andExpect(status().isServiceUnavailable())
                     .andExpect(header().string("Retry-After", "1"))
                     .andExpect(jsonPath("$.code").value(503));
         }

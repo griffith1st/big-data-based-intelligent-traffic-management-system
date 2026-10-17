@@ -18,7 +18,7 @@ import java.util.Map;
 @RestController
 @RequestMapping({"/api/prediction", "/api/predictions"})
 @RequiredArgsConstructor
-@Tag(name = "流量预测", description = "LSTM模型流量预测、拥堵风险预警")
+@Tag(name = "流量预测", description = "趋势模拟预测、模拟拥堵风险提示（未接入训练模型）")
 public class PredictionController {
 
     private final TrafficPredictionService predictionService;
@@ -37,20 +37,20 @@ public class PredictionController {
     }
 
     @PostMapping({"/trigger", "/lstm/trigger"})
-    @Operation(summary = "触发LSTM预测", description = "触发LSTM模型进行流量预测，返回预测批次数据")
+    @Operation(summary = "生成模拟预测", description = "按趋势公式与噪声生成模拟预测批次；兼容旧路径，不调用LSTM模型")
     public Result<Map<String, Object>> triggerPrediction() {
         return Result.success(predictionService.triggerPrediction());
     }
 
     @GetMapping("/latest")
-    @Operation(summary = "获取最新预测批次", description = "获取最新的LSTM预测批次数据")
+    @Operation(summary = "获取最新预测批次", description = "只读获取最新模拟预测批次；无数据时返回空批次")
     public Result<Map<String, Object>> getLatest(
             @RequestParam(required = false) String intersectionId) {
         return Result.success(predictionService.getLatestPredictionBatch(intersectionId));
     }
 
     @GetMapping("/risk")
-    @Operation(summary = "检测拥堵风险", description = "分析预测数据，检测拥堵风险并生成预警")
+    @Operation(summary = "检测拥堵风险", description = "只读查看已有预测批次中的风险")
     public Result<List<Map<String, Object>>> detectRisk() {
         return Result.success(predictionService.detectCongestionRisk());
     }

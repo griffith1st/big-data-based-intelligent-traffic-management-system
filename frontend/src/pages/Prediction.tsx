@@ -1,82 +1,41 @@
-﻿import React, { useEffect, useState } from 'react';
-import { Card, Row, Col, Table, Tag, Button, Space, Spin, message, Alert, Select, Statistic } from 'antd';
+import React, { useState } from 'react';
+import { Card, Row, Col, Table, Tag, Button, Space, message, Alert, Select, Empty } from 'antd';
 import { ThunderboltOutlined, WarningOutlined } from '@ant-design/icons';
 import ReactEChartsCore from 'echarts-for-react';
 import { predictionApi } from '../services/api';
+import { useResource } from '../services/useResource';
+import ResourceStatus from '../components/ResourceStatus';
+import { useAuth } from '../services/AuthContext';
+import { canManageTraffic } from '../services/session';
 
 const Prediction: React.FC = () => {
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const resource = useResource(signal => predictionApi.getLatest(undefined, signal).then(r => r.data));
   const [predicting, setPredicting] = useState(false);
-  const [predictions, setPredictions] = useState<any[]>([]);
-  const [overview, setOverview] = useState<any[]>([]);
-  const [riskData, setRiskData] = useState<any[]>([]);
-  const [batchInfo, setBatchInfo] = useState<any>(null);
-  const [selectedIntersection, setSelectedIntersection] = useState<string>('');
-
-  const fetchData = async () => {
-    try {
-      const latestRes = await predictionApi.getLatest();
-      const latest = latestRes.code === 200 ? latestRes.data : null;
-      const overviewData = latest?.overview || [];
-      setBatchInfo(latest);
-      setOverview(overviewData);
-      setRiskData(latest?.risks || []);
-
-      const targetIntersection = selectedIntersection || overviewData[0]?.intersectionId;
-      if (!selectedIntersection && targetIntersection) {
-        setSelectedIntersection(targetIntersection);
-      }
-      if (targetIntersection) {
-        const predRes = await predictionApi.getLatest(targetIntersection);
-        if (predRes.code === 200) setPredictions(predRes.data?.items || []);
-      } else {
-        setPredictions([]);
-      }
-    } catch (error) {
-      console.error('获取预测数据失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-  useEffect(() => { fetchData(); }, [selectedIntersection]);
-
+  const [selection, setSelection] = useState<string>();
+  const batchInfo = resource.data;
+  const overview: any[] = batchInfo?.overview || [];
+  const riskData: any[] = batchInfo?.risks || [];
+  const selectedIntersection = selection || overview[0]?.intersectionId;
+  const predictions: any[] = (batchInfo?.items || []).filter((item: any) => item.intersectionId === selectedIntersection);
   const handlePredict = async () => {
     setPredicting(true);
-    try {
-      const res = await predictionApi.triggerLstm();
-      if (res.code === 200) {
-        message.success('LSTM 预测完成');
-        const batch = res.data || {};
-        const overviewData = batch.overview || [];
-        const targetIntersection = selectedIntersection || overviewData[0]?.intersectionId;
-        setBatchInfo(batch);
-        setOverview(overviewData);
-        setRiskData(batch.risks || []);
-        setPredictions(targetIntersection
-          ? (batch.items || []).filter((item: any) => item.intersectionId === targetIntersection)
-          : []);
-        if (!selectedIntersection && targetIntersection) setSelectedIntersection(targetIntersection);
-      } else {
-        message.error(res.message || '预测失败');
-      }
-    } catch (error) {
-      message.error('预测请求失败');
-    } finally {
-      setPredicting(false);
-    }
+    try { await predictionApi.triggerLstm(); message.success('模拟预测批次已生成'); resource.reload(); }
+    catch (error: any) { message.error(error.message || '预测请求失败'); }
+    finally { setPredicting(false); }
   };
 
-  // LSTM 预测结果趋势图
+  // 模拟趋势：仅展示预测量，不把随机分数解释为可靠性。
   const predictionChartOption = {
     tooltip: { trigger: 'axis' as const },
-    legend: { data: ['预测流量', '预测速度', '置信度'] },
+    legend: { data: ['预测流量', '预测速度'] },
     xAxis: {
       type: 'category' as const,
       data: predictions.map((d) => d.predictionTime ? new Date(d.predictionTime).toLocaleTimeString() : ''),
     },
     yAxis: [
       { type: 'value' as const, name: '流量(辆)' },
-      { type: 'value' as const, name: '速度(km/h) / 置信度' },
+      { type: 'value' as const, name: '速度(km/h)' },
     ],
     series: [
       {
@@ -95,15 +54,6 @@ const Prediction: React.FC = () => {
         data: predictions.map((d) => d.predictedSpeed),
         smooth: true,
         itemStyle: { color: '#52c41a' },
-      },
-      {
-        name: '置信度',
-        type: 'line',
-        yAxisIndex: 1,
-        data: predictions.map((d) => (d.confidence || 0) * 100),
-        smooth: true,
-        lineStyle: { type: 'dashed' },
-        itemStyle: { color: '#fa8c16' },
       },
     ],
   };
@@ -148,38 +98,32 @@ const Prediction: React.FC = () => {
         return <Tag color={colors[level] || '#999'}>{labels[level] || '未知'}</Tag>;
       },
     },
-    {
-      title: '置信度', dataIndex: 'confidence', key: 'confidence',
-      render: (v: number) => <span style={{ color: (v || 0) > 0.8 ? '#52c41a' : '#fa8c16' }}>{((v || 0) * 100).toFixed(1)}%</span>,
-    },
     { title: '模型版本', dataIndex: 'modelVersion', key: 'modelVersion' },
   ];
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
 
   return (
     <div>
+      <Alert type="info" showIcon message="模拟预测" description="基于交通采样趋势计算未来流量，用于演示与方案比较。结果尚无真实预测准确率验证，请勿用于真实调度决策。" style={{ marginBottom: 16 }} />
+      <ResourceStatus resource={resource} />
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Space size="middle">
           <Select
             placeholder="选择路口"
             style={{ width: 200 }}
             value={selectedIntersection}
-            onChange={setSelectedIntersection}
+            onChange={setSelection}
             options={Array.from(new Set(overview.map((d: any) => d.intersectionId)))
               .map((id) => {
                 const item = overview.find((d: any) => d.intersectionId === id);
                 return { label: item?.intersectionName || id, value: id };
               })}
-            allowClear
           />
           <span style={{ color: '#666' }}>
-            LSTM 模型: 基于实时/历史交通数据预测未来30分钟{batchInfo?.batchId ? `，当前批次 ${batchInfo.batchId}` : ''}
+            模拟预测：未来30分钟{batchInfo?.batchId ? `，当前批次 ${batchInfo.batchId}` : ''}
           </span>
         </Space>
-        <Button type="primary" icon={<ThunderboltOutlined />} loading={predicting} onClick={handlePredict}>
-          触发 LSTM 预测
-        </Button>
+        {canManageTraffic(user?.role) && <Button type="primary" icon={<ThunderboltOutlined />} loading={predicting} onClick={handlePredict}>生成预测批次</Button>}
       </div>
 
       {riskData.length > 0 && (
@@ -203,21 +147,22 @@ const Prediction: React.FC = () => {
 
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}>
-          <Card title="LSTM 流量预测趋势" bodyStyle={{ padding: 12 }}>
-            <ReactEChartsCore option={predictionChartOption} notMerge style={{ height: 350 }} />
+          <Card title="模拟流量预测趋势" styles={{ body: { padding: 12 } }}>
+            {predictions.length ? <ReactEChartsCore option={predictionChartOption} notMerge style={{ height: 350 }} /> : <Empty description="暂无预测数据，交通管理员可生成预测批次" />}
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card title="各路口预测概览" bodyStyle={{ padding: 12 }}>
-            <ReactEChartsCore option={overviewOption} notMerge style={{ height: 350 }} />
+          <Card title="各路口预测概览" styles={{ body: { padding: 12 } }}>
+            {overview.length ? <ReactEChartsCore option={overviewOption} notMerge style={{ height: 350 }} /> : <Empty description="暂无预测概览" />}
           </Card>
         </Col>
       </Row>
 
       <Row style={{ marginTop: 16 }}>
         <Col span={24}>
-          <Card title="LSTM 预测详情" bodyStyle={{ padding: 0 }}>
+          <Card title="模拟预测详情" styles={{ body: { padding: 0 } }}>
             <Table
+              loading={resource.loading}
               columns={columns}
               dataSource={predictions}
               rowKey={(row: any) => row.id || `${row.batchId}-${row.intersectionId}-${row.predictionTime}`}

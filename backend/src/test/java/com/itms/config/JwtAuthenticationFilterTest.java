@@ -2,6 +2,9 @@ package com.itms.config;
 
 import com.itms.service.RedisAuthService;
 import com.itms.util.JwtUtil;
+import com.itms.repository.UserRepository;
+import com.itms.entity.User;
+import java.util.Optional;
 import org.junit.jupiter.api.*;
 import org.springframework.mock.web.*;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -14,15 +17,20 @@ class JwtAuthenticationFilterTest {
     RedisAuthService redis;
     JwtUtil jwt;
     OncePerRequestFilter filter;
+    UserRepository users;
     @BeforeEach void setup() {
         SecurityContextHolder.clearContext(); redis=mock(RedisAuthService.class);
-        jwt=jwt(60_000); filter=new SecurityConfig(jwt,redis).jwtAuthenticationFilter();
+        users=mock(UserRepository.class);
+        when(users.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).username("alice").enabled(true).role("ADMIN").build()));
+        jwt=jwt(60_000); filter=new SecurityConfig(jwt,redis,users).jwtAuthenticationFilter();
     }
     @AfterEach void clear() { SecurityContextHolder.clearContext(); }
-    void request(String token) throws Exception {
+    MockHttpServletResponse request(String token) throws Exception {
         var req=new MockHttpServletRequest("GET","/api/traffic/realtime");
         if(token!=null) req.addHeader("Authorization","Bearer "+token);
-        filter.doFilter(req,new MockHttpServletResponse(),new MockFilterChain());
+        var response = new MockHttpServletResponse();
+        filter.doFilter(req,response,new MockFilterChain());
+        return response;
     }
     @Test void validTokenCreatesAuthenticatedIdentity() throws Exception {
         request(jwt.generateToken(1L,"alice","ADMIN"));
@@ -43,9 +51,12 @@ class JwtAuthenticationFilterTest {
     @Test void missingTokenDoesNotAuthenticate() throws Exception {
         request(null); assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull(); verifyNoInteractions(redis);
     }
-    @Test @Tag("known-limitation") void characterizesBlacklistOutagePropagatingFromFilter() {
+    @Test void blacklistOutageReturnsJson503WithoutAuthentication() throws Exception {
         when(redis.isTokenRevoked(anyString())).thenThrow(new IllegalStateException("redis unavailable"));
-        assertThatThrownBy(() -> request(jwt.generateToken(1L,"alice","ADMIN"))).hasMessage("redis unavailable");
+        var response = request(jwt.generateToken(1L,"alice","ADMIN"));
+        assertThat(response.getStatus()).isEqualTo(503);
+        assertThat(response.getHeader("Retry-After")).isEqualTo("1");
+        assertThat(response.getContentAsString()).contains("\"code\":503");
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 }

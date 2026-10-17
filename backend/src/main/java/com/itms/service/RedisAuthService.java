@@ -12,5 +12,8 @@ public interface RedisAuthService {
     /** Returns the current failed-attempt count for a username. */
     long recordLoginFailure(String username);
 
+    /** Seconds until a locked account may retry; zero means not locked. */
+    long loginRetryAfterSeconds(String username);
+
     void clearLoginFailures(String username);
 }
